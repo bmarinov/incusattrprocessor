@@ -73,7 +73,7 @@ func assertAttrs(t *testing.T, attrs pcommon.Map, key, want string) {
 func profilesWithPID(pid string) (pprofile.Profiles, pprofile.ResourceProfiles) {
 	pd := pprofile.NewProfiles()
 	rp := pd.ResourceProfiles().AppendEmpty()
-	rp.Resource().Attributes().PutStr("process.pid", pid)
+	rp.Resource().Attributes().PutStr(attrPID, pid)
 	return pd, rp
 }
 

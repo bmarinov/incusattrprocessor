@@ -13,6 +13,8 @@ const (
 	attrInstanceLocation = "incus.instance.location"
 )
 
+const attrPID = "process.pid"
+
 type MetadataSource interface {
 	GetInstanceMetadata(ctx context.Context, id string) (InstanceMetadata, error)
 }
@@ -39,6 +41,23 @@ type incusAttrProcessor struct {
 }
 
 func (p *incusAttrProcessor) processProfiles(ctx context.Context, pd pprofile.Profiles) (pprofile.Profiles, error) {
+	for _, rp := range pd.ResourceProfiles().All() {
+		attrs := rp.Resource().Attributes()
+
+		pidVal, ok := attrs.Get(attrPID)
+		if !ok {
+			continue
+		}
+
+		meta, err := p.metadata.GetInstanceMetadata(ctx, pidVal.Str())
+		if err != nil {
+			continue
+		}
+
+		attrs.PutStr(attrInstanceName, meta.Name)
+		attrs.PutStr(attrInstanceProject, meta.Project)
+		attrs.PutStr(attrInstanceLocation, meta.Location)
+	}
 	return pd, nil
 }
 
