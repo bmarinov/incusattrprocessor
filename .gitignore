@@ -4,5 +4,6 @@
 !*.go
 !**/testdata/**
 !*.sh
+!*.yaml
 !scripts/
 !.vscode/
