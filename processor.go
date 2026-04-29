@@ -2,9 +2,13 @@ package incusattrprocessor
 
 import (
 	"context"
+	"errors"
 
+	"github.com/bmarinov/otelcol-processor-incus/internal/instanceid"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/pdata/pprofile"
+	"go.opentelemetry.io/collector/processor"
+	"go.uber.org/zap"
 )
 
 const (
@@ -25,12 +29,13 @@ type InstanceMetadata struct {
 	Location string
 }
 
-func newIncusAttrProcessor(ctx context.Context, cfg *processorConfig, meta MetadataSource) *incusAttrProcessor {
+func newIncusAttrProcessor(ctx context.Context, params processor.Settings, cfg *processorConfig, meta MetadataSource) *incusAttrProcessor {
 	_, cancel := context.WithCancel(ctx)
 	return &incusAttrProcessor{
 		cancel:   cancel,
 		config:   *cfg,
 		metadata: meta,
+		logger:   params.Logger,
 	}
 }
 
@@ -38,9 +43,11 @@ type incusAttrProcessor struct {
 	cancel   context.CancelFunc
 	config   processorConfig
 	metadata MetadataSource
+	logger   *zap.Logger
 }
 
 func (p *incusAttrProcessor) processProfiles(ctx context.Context, pd pprofile.Profiles) (pprofile.Profiles, error) {
+	total, matched := 0, 0
 	for _, rp := range pd.ResourceProfiles().All() {
 		attrs := rp.Resource().Attributes()
 
@@ -48,15 +55,25 @@ func (p *incusAttrProcessor) processProfiles(ctx context.Context, pd pprofile.Pr
 		if !ok {
 			continue
 		}
+		total++
 
-		meta, err := p.metadata.GetInstanceMetadata(ctx, pidVal.Str())
+		pid := pidVal.AsString()
+		meta, err := p.metadata.GetInstanceMetadata(ctx, pid)
 		if err != nil {
+			if !errors.Is(err, instanceid.ErrNotContainer) {
+				p.logger.Debug("metadata lookup failed", zap.String("pid", pid), zap.Error(err))
+			}
 			continue
 		}
+		matched++
 
+		p.logger.Debug("matched container", zap.String("pid", pidVal.Str()), zap.String("container", meta.Name))
 		attrs.PutStr(attrInstanceName, meta.Name)
 		attrs.PutStr(attrInstanceProject, meta.Project)
 		attrs.PutStr(attrInstanceLocation, meta.Location)
+	}
+	if total > 0 {
+		p.logger.Debug("batch", zap.Int("matched", matched), zap.Int("total", total))
 	}
 	return pd, nil
 }

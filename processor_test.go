@@ -5,28 +5,31 @@ import (
 	"errors"
 	"testing"
 
+	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pprofile"
+	"go.opentelemetry.io/collector/processor"
+	"go.uber.org/zap"
 )
 
 func TestIncusAttrProcessor_processProfiles(t *testing.T) {
 	tests := []struct {
 		name      string
-		pid       string
+		pid       int64
 		instances map[string]InstanceMetadata
 		want      *InstanceMetadata
 	}{
 		{
-			name: "adds instance metadata when pid matches",
-			pid:  "1122",
+			name: "enriches resource with container metadata when pid matches a running instance",
+			pid:  1122,
 			instances: map[string]InstanceMetadata{
 				"1122": {Name: "container-foo", Project: "default", Location: "node-0"},
 			},
 			want: &InstanceMetadata{Name: "container-foo", Project: "default", Location: "node-0"},
 		},
 		{
-			name:      "leaves resource unchanged when pid has no matching instance",
-			pid:       "9001",
+			name:      "leaves resource unchanged when pid belongs to no known instance",
+			pid:       9001,
 			instances: map[string]InstanceMetadata{},
 			want:      nil,
 		},
@@ -35,7 +38,7 @@ func TestIncusAttrProcessor_processProfiles(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			pd, _ := profilesWithPID(tc.pid)
-			p := newIncusAttrProcessor(context.Background(), &processorConfig{},
+			p := newIncusAttrProcessor(context.Background(), nopSettings(), &processorConfig{},
 				&metadataSourceFake{instances: tc.instances})
 
 			got, err := p.processProfiles(context.Background(), pd)
@@ -51,14 +54,14 @@ func TestIncusAttrProcessor_processProfiles(t *testing.T) {
 				return
 			}
 
-			assertAttrs(t, attrs, attrInstanceName, tc.want.Name)
-			assertAttrs(t, attrs, attrInstanceProject, tc.want.Project)
-			assertAttrs(t, attrs, attrInstanceLocation, tc.want.Location)
+			assertAttr(t, attrs, attrInstanceName, tc.want.Name)
+			assertAttr(t, attrs, attrInstanceProject, tc.want.Project)
+			assertAttr(t, attrs, attrInstanceLocation, tc.want.Location)
 		})
 	}
 }
 
-func assertAttrs(t *testing.T, attrs pcommon.Map, key, want string) {
+func assertAttr(t *testing.T, attrs pcommon.Map, key, want string) {
 	t.Helper()
 	got, ok := attrs.Get(key)
 	if !ok {
@@ -66,15 +69,21 @@ func assertAttrs(t *testing.T, attrs pcommon.Map, key, want string) {
 		return
 	}
 	if got.Str() != want {
-		t.Errorf("%s = %s, want %s", key, got.Str(), want)
+		t.Errorf("%s = %q, want %q", key, got.Str(), want)
 	}
 }
 
-func profilesWithPID(pid string) (pprofile.Profiles, pprofile.ResourceProfiles) {
+func profilesWithPID(pid int64) (pprofile.Profiles, pprofile.ResourceProfiles) {
 	pd := pprofile.NewProfiles()
 	rp := pd.ResourceProfiles().AppendEmpty()
-	rp.Resource().Attributes().PutStr(attrPID, pid)
+	rp.Resource().Attributes().PutInt(attrPID, pid)
 	return pd, rp
+}
+
+func nopSettings() processor.Settings {
+	return processor.Settings{
+		TelemetrySettings: component.TelemetrySettings{Logger: zap.NewNop()},
+	}
 }
 
 type metadataSourceFake struct {

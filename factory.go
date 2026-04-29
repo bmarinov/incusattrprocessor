@@ -29,8 +29,7 @@ func createProfilesProcessor(
 	nextProfilesConsumer xconsumer.Profiles,
 ) (xprocessor.Profiles, error) {
 	pCfg := cfg.(*processorConfig)
-	// TODO: pass actual incus meta source
-	p := newIncusAttrProcessor(ctx, pCfg, nil)
+	p := newIncusAttrProcessor(ctx, params, pCfg, newCgroupMetadataSource())
 
 	consumerCapabilities := consumer.Capabilities{MutatesData: true}
 	foo, err := xprocessorhelper.NewProfiles(ctx, params, cfg, nextProfilesConsumer,

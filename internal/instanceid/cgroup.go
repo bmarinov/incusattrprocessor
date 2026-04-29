@@ -1,0 +1,65 @@
+package instanceid
+
+import (
+	"bufio"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+var (
+	ErrNotContainer = errors.New("process not in a container")
+)
+
+func FromPID(procRoot string, pid string) (string, error) {
+	f, err := os.Open(filepath.Join(procRoot, pid, "cgroup"))
+	if err != nil {
+		return "", fmt.Errorf("reading cgroup for pid %s: %w", pid, err)
+	}
+	defer func() {
+		_ = f.Close()
+	}()
+
+	cgroupPath, err := parseCgroupFile(f)
+	if err != nil {
+		return "", fmt.Errorf("pid %s: %w", pid, err)
+	}
+
+	return parseLXCCgroupPath(cgroupPath)
+}
+
+// parseCgroupFile extracts the cgroup path from a /proc/<pid>/cgroup file.
+func parseCgroupFile(r io.Reader) (string, error) {
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		line := scanner.Text()
+		path, ok := strings.CutPrefix(line, "0::")
+		if ok {
+			return path, nil
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("scanning cgroup file: %w", err)
+	}
+	return "", fmt.Errorf("no cgroup v2 unified hierarchy entry found")
+}
+
+// parseLXCCgroupPath extracts the instance name from an lxc cgroup path.
+// Expected format: /lxc.payload.<name>/<subpath>
+func parseLXCCgroupPath(path string) (string, error) {
+	const prefix = "/lxc.payload."
+	rest, ok := strings.CutPrefix(path, prefix)
+	if !ok {
+		return "", fmt.Errorf("not an LXC cgroup path %q: %w", path, ErrNotContainer)
+	}
+
+	// Drop subscope
+	name, _, _ := strings.Cut(rest, "/")
+	if name == "" {
+		return "", fmt.Errorf("empty container name in cgroup path %q: %w", path, ErrNotContainer)
+	}
+	return name, nil
+}
