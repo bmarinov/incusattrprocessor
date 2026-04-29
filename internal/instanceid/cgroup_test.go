@@ -46,7 +46,7 @@ func Test_parseCgroupFile(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name:  "cgroupv2 unified hierarchy",
+			name:  "cgroupv2 lxc container",
 			input: "0::/lxc.payload.foo-container\n",
 			want:  "/lxc.payload.foo-container",
 		},
@@ -56,7 +56,7 @@ func Test_parseCgroupFile(t *testing.T) {
 			want:  "/lxc.payload.foo-container/init.scope",
 		},
 		{
-			name:  "non-LXC path returned without error",
+			name:  "non-LXC path",
 			input: "0::/system.slice/sshd.service\n",
 			want:  "/system.slice/sshd.service",
 		},
