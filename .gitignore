@@ -1,0 +1,13 @@
+*
+!*/
+!.gitignore
+!*.go
+!**/testdata/**
+!*.sh
+!*.yaml
+!scripts/
+!.vscode/
+
+# dist/build output:
+_build
+dist
