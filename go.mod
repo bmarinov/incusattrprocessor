@@ -3,6 +3,7 @@ module github.com/bmarinov/otelcol-processor-incus
 go 1.26.2
 
 require (
+	github.com/lxc/incus/v6 v6.23.0
 	go.opentelemetry.io/collector/component v1.57.0
 	go.opentelemetry.io/collector/consumer v1.57.0
 	go.opentelemetry.io/collector/consumer/xconsumer v0.151.0
