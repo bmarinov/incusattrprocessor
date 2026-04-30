@@ -1,0 +1,5 @@
+lxc-init-scope        traefik-reverse-proxy
+lxc-systemd-service   traefik-reverse-proxy
+lxc-nested-docker     traefik-reverse-proxy
+host-process          !ErrNotContainer
+lxc-project-instance  fooproject_sharing-martin
