@@ -3,8 +3,11 @@ package incusattrprocessor
 import (
 	"context"
 	"errors"
+	"fmt"
 
-	"github.com/bmarinov/otelcol-processor-incus/internal/instanceid"
+	"github.com/bmarinov/otelcol-processor-incus/internal/cgroup"
+	"github.com/bmarinov/otelcol-processor-incus/internal/incus"
+	incusclient "github.com/lxc/incus/v6/client"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/pdata/pprofile"
 	"go.opentelemetry.io/collector/processor"
@@ -29,8 +32,16 @@ type InstanceMetadata struct {
 	Location string
 }
 
-func newIncusAttrProcessor(ctx context.Context, params processor.Settings, cfg *processorConfig, meta MetadataSource) *incusAttrProcessor {
+func newIncusAttrProcessor(
+	ctx context.Context,
+	params processor.Settings,
+	cfg *processorConfig,
+	meta MetadataSource,
+) *incusAttrProcessor {
 	_, cancel := context.WithCancel(ctx)
+
+	// TODO: incus conn -> new client from local internal/incus package
+
 	return &incusAttrProcessor{
 		cancel:   cancel,
 		config:   *cfg,
@@ -60,7 +71,7 @@ func (p *incusAttrProcessor) processProfiles(ctx context.Context, pd pprofile.Pr
 		pid := pidVal.AsString()
 		meta, err := p.metadata.GetInstanceMetadata(ctx, pid)
 		if err != nil {
-			if !errors.Is(err, instanceid.ErrNotContainer) {
+			if !errors.Is(err, cgroup.ErrNotContainer) {
 				p.logger.Debug("metadata lookup failed", zap.String("pid", pid), zap.Error(err))
 			}
 			continue
@@ -78,7 +89,16 @@ func (p *incusAttrProcessor) processProfiles(ctx context.Context, pd pprofile.Pr
 	return pd, nil
 }
 
-func (p *incusAttrProcessor) startup(ctx context.Context, h component.Host) error {
+func (p *incusAttrProcessor) startup(ctx context.Context, _ component.Host) error {
+	src, ok := p.metadata.(*cgroupMetadataSource)
+	if !ok {
+		return nil
+	}
+	conn, err := incusclient.ConnectIncusUnixWithContext(ctx, "", nil)
+	if err != nil {
+		return fmt.Errorf("connecting to incus daemon: %w", err)
+	}
+	src.client = incus.New(conn)
 	return nil
 }
 
