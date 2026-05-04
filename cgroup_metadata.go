@@ -21,22 +21,19 @@ func newCgroupMetadataSource() *cgroupMetadataSource {
 	return &cgroupMetadataSource{procRoot: "/proc"}
 }
 
-func (s *cgroupMetadataSource) GetInstanceMetadata(ctx context.Context, pid string) (InstanceMetadata, error) {
+func (s *cgroupMetadataSource) GetInstanceMetadata(ctx context.Context, pid string) (incus.InstanceInfo, error) {
 	cPath, err := cgroup.Read(s.procRoot, pid)
 	if err != nil {
-		return InstanceMetadata{}, fmt.Errorf("reading cgroup for pid %s: %w", pid, err)
+		return incus.InstanceInfo{}, fmt.Errorf("reading cgroup for pid %s: %w", pid, err)
 	}
 	label, err := cgroup.ParseLXC(cPath)
 	if err != nil {
-		return InstanceMetadata{}, err
+		return incus.InstanceInfo{}, err
 	}
 	project, name := incus.SplitLabel(label)
 	instance, err := s.client.GetInstance(ctx, project, name)
 	if err != nil {
-		return InstanceMetadata{}, fmt.Errorf("incus lookup %s/%s: %w", project, name, err)
+		return incus.InstanceInfo{}, fmt.Errorf("incus lookup %s/%s: %w", project, name, err)
 	}
-	return InstanceMetadata{
-		Name:     name,
-		Project:  project,
-		Location: instance.Location}, nil
+	return instance, nil
 }

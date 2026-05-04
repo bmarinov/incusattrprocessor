@@ -14,6 +14,8 @@ type Client struct {
 }
 
 type InstanceInfo struct {
+	Name     string
+	Project  string
 	Location string
 	// TODO: check if not already present in ebpf profile attrs
 	Architecture string
@@ -38,6 +40,8 @@ func (c *Client) GetInstance(ctx context.Context, project, name string) (Instanc
 	// }
 
 	return InstanceInfo{
+		Name:         name,
+		Project:      project,
 		Location:     inst.Location,
 		Architecture: inst.Architecture,
 	}, nil

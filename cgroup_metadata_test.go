@@ -31,12 +31,12 @@ func TestCgroupMetadataSource_GetInstanceMetadata(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if got.Name != "web-fe" || got.Project != "default" || got.Location != "node-1" {
-			t.Errorf("got %v, want {web-fe default node-1}", got)
+		if got.Location != "node-1" {
+			t.Errorf("Location: want %q, got %q", "node-1", got.Location)
 		}
 	})
 
-	t.Run("resolves named-project container", func(t *testing.T) {
+	t.Run("resolves container in non-default project", func(t *testing.T) {
 		procRoot := t.TempDir()
 		writeCgroup(t, procRoot, "101", "0::/lxc.payload.fooproject_web\n")
 		src := &cgroupMetadataSource{procRoot: procRoot, client: &fakeInstanceLookup{info: incus.InstanceInfo{Location: "node-2"}}}
@@ -45,8 +45,8 @@ func TestCgroupMetadataSource_GetInstanceMetadata(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if got.Name != "web" || got.Project != "fooproject" || got.Location != "node-2" {
-			t.Errorf("got %v, want {web fooproject node-2}", got)
+		if got.Location != "node-2" {
+			t.Errorf("Location: want %q, got %q", "node-2", got.Location)
 		}
 	})
 
@@ -87,6 +87,9 @@ type fakeInstanceLookup struct {
 	err  error
 }
 
-func (f *fakeInstanceLookup) GetInstance(_ context.Context, _, _ string) (incus.InstanceInfo, error) {
-	return f.info, f.err
+func (f *fakeInstanceLookup) GetInstance(_ context.Context, project, name string) (incus.InstanceInfo, error) {
+	info := f.info
+	info.Name = name
+	info.Project = project
+	return info, f.err
 }

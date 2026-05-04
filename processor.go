@@ -23,13 +23,7 @@ const (
 const attrPID = "process.pid"
 
 type MetadataSource interface {
-	GetInstanceMetadata(ctx context.Context, id string) (InstanceMetadata, error)
-}
-
-type InstanceMetadata struct {
-	Name     string
-	Project  string
-	Location string
+	GetInstanceMetadata(ctx context.Context, id string) (incus.InstanceInfo, error)
 }
 
 func newIncusAttrProcessor(
