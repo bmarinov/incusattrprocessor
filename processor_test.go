@@ -2,9 +2,9 @@ package incusattrprocessor
 
 import (
 	"context"
-	"errors"
 	"testing"
 
+	"github.com/bmarinov/otelcol-processor-incus/internal/incus"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pprofile"
@@ -13,52 +13,63 @@ import (
 )
 
 func TestIncusAttrProcessor_processProfiles(t *testing.T) {
-	tests := []struct {
-		name      string
-		pid       int64
-		instances map[string]InstanceMetadata
-		want      *InstanceMetadata
-	}{
-		{
-			name: "enriches resource with container metadata when pid matches a running instance",
-			pid:  1122,
-			instances: map[string]InstanceMetadata{
-				"1122": {Name: "container-foo", Project: "default", Location: "node-0"},
-			},
-			want: &InstanceMetadata{Name: "container-foo", Project: "default", Location: "node-0"},
-		},
-		{
-			name:      "leaves resource unchanged when pid belongs to no known instance",
-			pid:       9001,
-			instances: map[string]InstanceMetadata{},
-			want:      nil,
-		},
-	}
+	t.Run("adds container metadata to resourcewhen pid matches a running instance", func(t *testing.T) {
+		procRoot := t.TempDir()
+		writeCgroup(t, procRoot, "1122", "0::/lxc.payload.container-foo\n")
+		src := &cgroupMetadataSource{
+			procRoot: procRoot,
+			client:   &fakeInstanceLookup{info: incus.InstanceInfo{Location: "node-0"}},
+		}
+		p := newIncusAttrProcessor(context.Background(), nopSettings(), &processorConfig{}, src)
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			pd, _ := profilesWithPID(tc.pid)
-			p := newIncusAttrProcessor(context.Background(), nopSettings(), &processorConfig{},
-				&metadataSourceFake{instances: tc.instances})
+		pd, _ := newProfilesWithPID(1122)
+		got, err := p.processProfiles(context.Background(), pd)
+		if err != nil {
+			t.Fatalf("processProfiles returned unexpected error: %v", err)
+		}
+		attrs := got.ResourceProfiles().At(0).Resource().Attributes()
+		assertAttr(t, attrs, attrInstanceName, "container-foo")
+		assertAttr(t, attrs, attrInstanceProject, "default")
+		assertAttr(t, attrs, attrInstanceLocation, "node-0")
+	})
 
-			got, err := p.processProfiles(context.Background(), pd)
-			if err != nil {
-				t.Fatalf("processProfiles returned unexpected error: %v", err)
-			}
-			attrs := got.ResourceProfiles().At(0).Resource().Attributes()
+	t.Run("leaves resource unchanged when pid is not in a container", func(t *testing.T) {
+		procRoot := t.TempDir()
+		writeCgroup(t, procRoot, "300", "0::/system.slice/sshd.service\n")
+		src := &cgroupMetadataSource{
+			procRoot: procRoot,
+			client:   &fakeInstanceLookup{},
+		}
+		p := newIncusAttrProcessor(context.Background(), nopSettings(), &processorConfig{}, src)
 
-			if tc.want == nil {
-				if _, ok := attrs.Get(attrInstanceName); ok {
-					t.Errorf("expected no %s attribute, but got one", attrInstanceName)
-				}
-				return
-			}
+		pd, _ := newProfilesWithPID(300)
+		got, err := p.processProfiles(context.Background(), pd)
+		if err != nil {
+			t.Fatalf("processProfiles returned unexpected error: %v", err)
+		}
+		attrs := got.ResourceProfiles().At(0).Resource().Attributes()
+		if _, ok := attrs.Get(attrInstanceName); ok {
+			t.Errorf("expected no %s attribute on non-container pid", attrInstanceName)
+		}
+	})
 
-			assertAttr(t, attrs, attrInstanceName, tc.want.Name)
-			assertAttr(t, attrs, attrInstanceProject, tc.want.Project)
-			assertAttr(t, attrs, attrInstanceLocation, tc.want.Location)
-		})
-	}
+	t.Run("leaves resource unchanged when pid has no cgroup entry", func(t *testing.T) {
+		src := &cgroupMetadataSource{
+			procRoot: t.TempDir(),
+			client:   &fakeInstanceLookup{},
+		}
+		p := newIncusAttrProcessor(context.Background(), nopSettings(), &processorConfig{}, src)
+
+		pd, _ := newProfilesWithPID(9999)
+		got, err := p.processProfiles(context.Background(), pd)
+		if err != nil {
+			t.Fatalf("processProfiles returned unexpected error: %v", err)
+		}
+		attrs := got.ResourceProfiles().At(0).Resource().Attributes()
+		if _, ok := attrs.Get(attrInstanceName); ok {
+			t.Errorf("expected no %s attribute for unknown pid", attrInstanceName)
+		}
+	})
 }
 
 func assertAttr(t *testing.T, attrs pcommon.Map, key, want string) {
@@ -69,11 +80,11 @@ func assertAttr(t *testing.T, attrs pcommon.Map, key, want string) {
 		return
 	}
 	if got.Str() != want {
-		t.Errorf("%s = %q, want %q", key, got.Str(), want)
+		t.Errorf("%s: want %q, got %q", key, want, got.Str())
 	}
 }
 
-func profilesWithPID(pid int64) (pprofile.Profiles, pprofile.ResourceProfiles) {
+func newProfilesWithPID(pid int64) (pprofile.Profiles, pprofile.ResourceProfiles) {
 	pd := pprofile.NewProfiles()
 	rp := pd.ResourceProfiles().AppendEmpty()
 	rp.Resource().Attributes().PutInt(attrPID, pid)
@@ -84,16 +95,4 @@ func nopSettings() processor.Settings {
 	return processor.Settings{
 		TelemetrySettings: component.TelemetrySettings{Logger: zap.NewNop()},
 	}
-}
-
-type metadataSourceFake struct {
-	instances map[string]InstanceMetadata
-}
-
-func (f *metadataSourceFake) GetInstanceMetadata(_ context.Context, id string) (InstanceMetadata, error) {
-	m, ok := f.instances[id]
-	if !ok {
-		return InstanceMetadata{}, errors.New("pid not found")
-	}
-	return m, nil
 }
