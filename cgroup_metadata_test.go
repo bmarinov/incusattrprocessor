@@ -2,7 +2,7 @@ package incusattrprocessor
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -73,7 +73,7 @@ func TestCgroupMetadataSource_GetInstanceMetadata(t *testing.T) {
 	t.Run("returns error when Incus API call fails", func(t *testing.T) {
 		procRoot := t.TempDir()
 		writeCgroup(t, procRoot, "400", "0::/lxc.payload.web-frontend\n")
-		src := &cgroupMetadataSource{procRoot: procRoot, client: &fakeInstanceLookup{err: fmt.Errorf("connection refused")}}
+		src := &cgroupMetadataSource{procRoot: procRoot, client: &fakeInstanceLookup{err: errors.New("connection refused")}}
 
 		_, err := src.GetInstanceMetadata(t.Context(), "400")
 		if err == nil {
