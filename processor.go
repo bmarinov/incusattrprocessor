@@ -3,7 +3,6 @@ package incusattrprocessor
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/bmarinov/otelcol-processor-incus/internal/cgroup"
 	"github.com/bmarinov/otelcol-processor-incus/internal/incus"
@@ -84,11 +83,7 @@ func (p *incusAttrProcessor) startup(ctx context.Context, _ component.Host) erro
 	ctx, cancel := context.WithCancel(ctx)
 	p.cancel = cancel
 
-	err := p.start(ctx)
-	if err != nil {
-		return fmt.Errorf("component startup: %w", err)
-	}
-	return nil
+	return p.start(ctx)
 }
 
 func (p *incusAttrProcessor) shutdown(_ context.Context) error {

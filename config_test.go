@@ -7,7 +7,7 @@ import (
 )
 
 func TestConfig(t *testing.T) {
-	t.Run("socket path config from file", func(t *testing.T) {
+	t.Run("read socket path from config file", func(t *testing.T) {
 		cm, err := confmaptest.LoadConf("testdata/config.yaml")
 		if err != nil {
 			t.Fatal(err)

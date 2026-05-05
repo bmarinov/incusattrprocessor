@@ -29,7 +29,6 @@ func New(socketPath string) *Client {
 	return &Client{
 		server: nil,
 		conn: func(ctx context.Context) (incusclient.InstanceServer, error) {
-
 			conn, err := incusclient.ConnectIncusUnixWithContext(ctx, socketPath, nil)
 			if err != nil {
 				return nil, fmt.Errorf("connecting to incus daemon: %w", err)
@@ -72,7 +71,7 @@ func SplitLabel(label string) (project, name string) {
 func (c *Client) Start(ctx context.Context) error {
 	conn, err := c.conn(ctx)
 	if err != nil {
-		return fmt.Errorf("connecting to incus daemon: %w", err)
+		return fmt.Errorf("failed to start: %w", err)
 	}
 
 	c.server = conn
