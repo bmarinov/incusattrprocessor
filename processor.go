@@ -83,7 +83,18 @@ func (p *incusAttrProcessor) startup(ctx context.Context, _ component.Host) erro
 	ctx, cancel := context.WithCancel(ctx)
 	p.cancel = cancel
 
-	return p.start(ctx)
+	err := p.start(ctx)
+	if err != nil {
+		return err
+	}
+
+	socket := p.config.Connection.SocketPath
+	if socket == "" {
+		socket = "/var/lib/incus/unix.socket (default)"
+	}
+	p.logger.Info("connected to incus daemon", zap.String("socket", socket))
+
+	return nil
 }
 
 func (p *incusAttrProcessor) shutdown(_ context.Context) error {
