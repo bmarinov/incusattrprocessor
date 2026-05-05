@@ -25,7 +25,7 @@ func TestCgroupMetadataSource_GetInstanceMetadata(t *testing.T) {
 	t.Run("resolves container in default project", func(t *testing.T) {
 		procRoot := t.TempDir()
 		writeCgroup(t, procRoot, "100", "0::/lxc.payload.web-fe\n")
-		src := &cgroupMetadataSource{procRoot: procRoot, client: &fakeInstanceLookup{info: incus.InstanceInfo{Location: "node-1"}}}
+		src := &cgroupMetadataSource{procRoot: procRoot, lookup: &fakeInstanceLookup{info: incus.InstanceInfo{Location: "node-1"}}}
 
 		got, err := src.GetInstanceMetadata(t.Context(), "100")
 		if err != nil {
@@ -39,7 +39,7 @@ func TestCgroupMetadataSource_GetInstanceMetadata(t *testing.T) {
 	t.Run("resolves container in non-default project", func(t *testing.T) {
 		procRoot := t.TempDir()
 		writeCgroup(t, procRoot, "101", "0::/lxc.payload.fooproject_web\n")
-		src := &cgroupMetadataSource{procRoot: procRoot, client: &fakeInstanceLookup{info: incus.InstanceInfo{Location: "node-2"}}}
+		src := &cgroupMetadataSource{procRoot: procRoot, lookup: &fakeInstanceLookup{info: incus.InstanceInfo{Location: "node-2"}}}
 
 		got, err := src.GetInstanceMetadata(t.Context(), "101")
 		if err != nil {
@@ -53,7 +53,7 @@ func TestCgroupMetadataSource_GetInstanceMetadata(t *testing.T) {
 	t.Run("returns error when pid cgroup is not an LXC path", func(t *testing.T) {
 		procRoot := t.TempDir()
 		writeCgroup(t, procRoot, "300", "0::/system.slice/sshd.service\n")
-		src := &cgroupMetadataSource{procRoot: procRoot, client: &fakeInstanceLookup{}}
+		src := &cgroupMetadataSource{procRoot: procRoot, lookup: &fakeInstanceLookup{}}
 
 		_, err := src.GetInstanceMetadata(t.Context(), "300")
 		if err == nil {
@@ -62,7 +62,7 @@ func TestCgroupMetadataSource_GetInstanceMetadata(t *testing.T) {
 	})
 
 	t.Run("returns error when pid does not exist", func(t *testing.T) {
-		src := &cgroupMetadataSource{procRoot: t.TempDir(), client: &fakeInstanceLookup{}}
+		src := &cgroupMetadataSource{procRoot: t.TempDir(), lookup: &fakeInstanceLookup{}}
 
 		_, err := src.GetInstanceMetadata(t.Context(), "999")
 		if err == nil {
@@ -73,7 +73,7 @@ func TestCgroupMetadataSource_GetInstanceMetadata(t *testing.T) {
 	t.Run("returns error when Incus API call fails", func(t *testing.T) {
 		procRoot := t.TempDir()
 		writeCgroup(t, procRoot, "400", "0::/lxc.payload.web-frontend\n")
-		src := &cgroupMetadataSource{procRoot: procRoot, client: &fakeInstanceLookup{err: errors.New("connection refused")}}
+		src := &cgroupMetadataSource{procRoot: procRoot, lookup: &fakeInstanceLookup{err: errors.New("connection refused")}}
 
 		_, err := src.GetInstanceMetadata(t.Context(), "400")
 		if err == nil {

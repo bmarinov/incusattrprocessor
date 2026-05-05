@@ -14,11 +14,14 @@ type instanceLookup interface {
 
 type cgroupMetadataSource struct {
 	procRoot string
-	client   instanceLookup
+	lookup   instanceLookup
 }
 
-func newCgroupMetadataSource() *cgroupMetadataSource {
-	return &cgroupMetadataSource{procRoot: "/proc"}
+func newCgroupMetadataSource(lookup instanceLookup) *cgroupMetadataSource {
+	return &cgroupMetadataSource{
+		procRoot: "/proc",
+		lookup:   lookup,
+	}
 }
 
 func (s *cgroupMetadataSource) GetInstanceMetadata(ctx context.Context, pid string) (incus.InstanceInfo, error) {
@@ -31,7 +34,7 @@ func (s *cgroupMetadataSource) GetInstanceMetadata(ctx context.Context, pid stri
 		return incus.InstanceInfo{}, err
 	}
 	project, name := incus.SplitLabel(label)
-	instance, err := s.client.GetInstance(ctx, project, name)
+	instance, err := s.lookup.GetInstance(ctx, project, name)
 	if err != nil {
 		return incus.InstanceInfo{}, fmt.Errorf("incus lookup %s/%s: %w", project, name, err)
 	}

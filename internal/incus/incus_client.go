@@ -11,7 +11,10 @@ import (
 // Client looks up Incus instance metadata via the local Unix socket.
 type Client struct {
 	server incusclient.InstanceServer
+	conn   connectFunc
 }
+
+type connectFunc func(ctx context.Context) (incusclient.InstanceServer, error)
 
 type InstanceInfo struct {
 	Name     string
@@ -22,9 +25,18 @@ type InstanceInfo struct {
 	// TODO: cpu limits
 }
 
-// New returns an API client with a live connection.
-func New(conn incusclient.InstanceServer) *Client {
-	return &Client{server: conn}
+func New(socketPath string) *Client {
+	return &Client{
+		server: nil,
+		conn: func(ctx context.Context) (incusclient.InstanceServer, error) {
+
+			conn, err := incusclient.ConnectIncusUnixWithContext(ctx, socketPath, nil)
+			if err != nil {
+				return nil, fmt.Errorf("connecting to incus daemon: %w", err)
+			}
+			return conn, nil
+		},
+	}
 }
 
 // GetInstance returns the cluster member (location) hosting the instance.
@@ -55,4 +67,15 @@ func SplitLabel(label string) (project, name string) {
 		return "default", label
 	}
 	return project, name
+}
+
+func (c *Client) Start(ctx context.Context) error {
+	conn, err := c.conn(ctx)
+	if err != nil {
+		return fmt.Errorf("connecting to incus daemon: %w", err)
+	}
+
+	c.server = conn
+
+	return nil
 }

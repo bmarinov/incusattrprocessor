@@ -7,7 +7,6 @@ import (
 
 	"github.com/bmarinov/otelcol-processor-incus/internal/cgroup"
 	"github.com/bmarinov/otelcol-processor-incus/internal/incus"
-	incusclient "github.com/lxc/incus/v6/client"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/pdata/pprofile"
 	"go.opentelemetry.io/collector/processor"
@@ -27,28 +26,25 @@ type MetadataSource interface {
 }
 
 func newIncusAttrProcessor(
-	ctx context.Context,
 	params processor.Settings,
 	cfg *processorConfig,
 	meta MetadataSource,
+	startFn func(context.Context) error,
 ) *incusAttrProcessor {
-	_, cancel := context.WithCancel(ctx)
-
-	// TODO: incus conn -> new client from local internal/incus package
-
 	return &incusAttrProcessor{
-		cancel:   cancel,
-		config:   *cfg,
-		metadata: meta,
-		logger:   params.Logger,
+		config: *cfg,
+		lookup: meta,
+		logger: params.Logger,
+		start:  startFn,
 	}
 }
 
 type incusAttrProcessor struct {
-	cancel   context.CancelFunc
-	config   processorConfig
-	metadata MetadataSource
-	logger   *zap.Logger
+	cancel context.CancelFunc
+	config processorConfig
+	lookup MetadataSource
+	logger *zap.Logger
+	start  func(ctx context.Context) error
 }
 
 func (p *incusAttrProcessor) processProfiles(ctx context.Context, pd pprofile.Profiles) (pprofile.Profiles, error) {
@@ -63,7 +59,7 @@ func (p *incusAttrProcessor) processProfiles(ctx context.Context, pd pprofile.Pr
 		total++
 
 		pid := pidVal.AsString()
-		meta, err := p.metadata.GetInstanceMetadata(ctx, pid)
+		meta, err := p.lookup.GetInstanceMetadata(ctx, pid)
 		if err != nil {
 			if !errors.Is(err, cgroup.ErrNotContainer) {
 				p.logger.Debug("metadata lookup failed", zap.String("pid", pid), zap.Error(err))
@@ -72,7 +68,8 @@ func (p *incusAttrProcessor) processProfiles(ctx context.Context, pd pprofile.Pr
 		}
 		matched++
 
-		p.logger.Debug("matched container", zap.String("pid", pidVal.Str()), zap.String("container", meta.Name))
+		p.logger.Debug("matched container", zap.String("pid", pid), zap.String("container", meta.Name))
+
 		attrs.PutStr(attrInstanceName, meta.Name)
 		attrs.PutStr(attrInstanceProject, meta.Project)
 		attrs.PutStr(attrInstanceLocation, meta.Location)
@@ -84,19 +81,19 @@ func (p *incusAttrProcessor) processProfiles(ctx context.Context, pd pprofile.Pr
 }
 
 func (p *incusAttrProcessor) startup(ctx context.Context, _ component.Host) error {
-	src, ok := p.metadata.(*cgroupMetadataSource)
-	if !ok {
-		return nil
-	}
-	conn, err := incusclient.ConnectIncusUnixWithContext(ctx, "", nil)
+	ctx, cancel := context.WithCancel(ctx)
+	p.cancel = cancel
+
+	err := p.start(ctx)
 	if err != nil {
-		return fmt.Errorf("connecting to incus daemon: %w", err)
+		return fmt.Errorf("component startup: %w", err)
 	}
-	src.client = incus.New(conn)
 	return nil
 }
 
 func (p *incusAttrProcessor) shutdown(_ context.Context) error {
-	p.cancel()
+	if p.cancel != nil {
+		p.cancel()
+	}
 	return nil
 }
