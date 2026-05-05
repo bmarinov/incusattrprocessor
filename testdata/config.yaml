@@ -1,0 +1,4 @@
+processors:
+  incusattr:
+    connection:
+      socket_path: /var/lib/incus/unix.socket

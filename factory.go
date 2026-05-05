@@ -29,13 +29,13 @@ func createProfilesProcessor(
 	cfg component.Config,
 	nextProfilesConsumer xconsumer.Profiles,
 ) (xprocessor.Profiles, error) {
-	pCfg := cfg.(*processorConfig)
+	pConfig := cfg.(*processorConfig)
 
 	// todo: middleware/cache:
-	incusClient := incus.New("")
+	incusClient := incus.New(pConfig.Connection.SocketPath)
 	lookup := newCgroupMetadataSource(incusClient)
 
-	p := newIncusAttrProcessor(params, pCfg, lookup, incusClient.Start)
+	p := newIncusAttrProcessor(params, pConfig, lookup, incusClient.Start)
 
 	consumerCapabilities := consumer.Capabilities{MutatesData: true}
 	processor, err := xprocessorhelper.NewProfiles(ctx, params, cfg, nextProfilesConsumer,
