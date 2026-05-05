@@ -7,6 +7,8 @@ For each profiled process it reads `/proc/<pid>/cgroup`, extracts the container 
 - `incus.instance.project`
 - `incus.instance.location`
 
+This processor is in early preview/alpha.
+
 ## Configuration
 
 ```yaml
@@ -22,7 +24,9 @@ processors:
 
 ## Build
 
-Bundle into a custom collector binary via OCB — includes the ebpf-profiler. See [otelcol-builder.yaml](./otelcol-builder.yaml) for details.
+Bundle together with the ebpf-profiler into a custom collector binary via [OCB](https://opentelemetry.io/docs/collector/extend/ocb/).
+
+See [otelcol-builder.yaml](./otelcol-builder.yaml) for details.
 
 ```sh
 # build for the host arch:
