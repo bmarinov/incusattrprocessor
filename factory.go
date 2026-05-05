@@ -3,6 +3,7 @@ package incusattrprocessor
 import (
 	"context"
 
+	"github.com/bmarinov/otelcol-processor-incus/internal/incus"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/consumer/xconsumer"
@@ -28,16 +29,21 @@ func createProfilesProcessor(
 	cfg component.Config,
 	nextProfilesConsumer xconsumer.Profiles,
 ) (xprocessor.Profiles, error) {
-	pCfg := cfg.(*processorConfig)
-	p := newIncusAttrProcessor(ctx, params, pCfg, newCgroupMetadataSource())
+	pConfig := cfg.(*processorConfig)
+
+	// todo: middleware/cache:
+	incusClient := incus.New(pConfig.Connection.SocketPath)
+	lookup := newCgroupMetadataSource(incusClient)
+
+	p := newIncusAttrProcessor(params, pConfig, lookup, incusClient.Start)
 
 	consumerCapabilities := consumer.Capabilities{MutatesData: true}
-	foo, err := xprocessorhelper.NewProfiles(ctx, params, cfg, nextProfilesConsumer,
+	processor, err := xprocessorhelper.NewProfiles(ctx, params, cfg, nextProfilesConsumer,
 		p.processProfiles,
 		xprocessorhelper.WithCapabilities(consumerCapabilities),
 		xprocessorhelper.WithStart(p.startup),
 		xprocessorhelper.WithShutdown(p.shutdown),
 	)
 
-	return foo, err
+	return processor, err
 }

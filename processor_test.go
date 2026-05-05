@@ -12,15 +12,22 @@ import (
 	"go.uber.org/zap"
 )
 
+// no op start func
+var nop = func(ctx context.Context) error { return nil }
+
 func TestIncusAttrProcessor_processProfiles(t *testing.T) {
-	t.Run("adds container metadata to resourcewhen pid matches a running instance", func(t *testing.T) {
+	t.Run("adds container metadata to resource when pid matches a running instance", func(t *testing.T) {
 		procRoot := t.TempDir()
 		writeCgroup(t, procRoot, "1122", "0::/lxc.payload.container-foo\n")
 		src := &cgroupMetadataSource{
 			procRoot: procRoot,
-			client:   &fakeInstanceLookup{info: incus.InstanceInfo{Location: "node-0"}},
+			lookup:   &fakeInstanceLookup{info: incus.InstanceInfo{Location: "node-0"}},
 		}
-		p := newIncusAttrProcessor(context.Background(), nopSettings(), &processorConfig{}, src)
+		p := newIncusAttrProcessor(
+			nopSettings(),
+			&processorConfig{},
+			src,
+			nop)
 
 		pd, _ := newProfilesWithPID(1122)
 		got, err := p.processProfiles(context.Background(), pd)
@@ -38,9 +45,9 @@ func TestIncusAttrProcessor_processProfiles(t *testing.T) {
 		writeCgroup(t, procRoot, "300", "0::/system.slice/sshd.service\n")
 		src := &cgroupMetadataSource{
 			procRoot: procRoot,
-			client:   &fakeInstanceLookup{},
+			lookup:   &fakeInstanceLookup{},
 		}
-		p := newIncusAttrProcessor(context.Background(), nopSettings(), &processorConfig{}, src)
+		p := newIncusAttrProcessor(nopSettings(), &processorConfig{}, src, nop)
 
 		pd, _ := newProfilesWithPID(300)
 		got, err := p.processProfiles(context.Background(), pd)
@@ -56,9 +63,9 @@ func TestIncusAttrProcessor_processProfiles(t *testing.T) {
 	t.Run("leaves resource unchanged when pid has no cgroup entry", func(t *testing.T) {
 		src := &cgroupMetadataSource{
 			procRoot: t.TempDir(),
-			client:   &fakeInstanceLookup{},
+			lookup:   &fakeInstanceLookup{},
 		}
-		p := newIncusAttrProcessor(context.Background(), nopSettings(), &processorConfig{}, src)
+		p := newIncusAttrProcessor(nopSettings(), &processorConfig{}, src, nop)
 
 		pd, _ := newProfilesWithPID(9999)
 		got, err := p.processProfiles(context.Background(), pd)
