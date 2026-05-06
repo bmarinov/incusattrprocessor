@@ -11,6 +11,9 @@ This processor is in early preview/alpha.
 
 ## Configuration
 
+Currently only the Incus socket path can be configured.
+
+Effective default configuration:
 ```yaml
 processors:
   incusattr:
