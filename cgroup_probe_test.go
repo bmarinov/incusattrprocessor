@@ -1,5 +1,3 @@
-//go:build probe
-
 package incusattrprocessor
 
 import (
@@ -7,6 +5,10 @@ import (
 	"fmt"
 	"os"
 	"testing"
+
+	"github.com/bmarinov/otelcol-processor-incus/internal/incus"
+	"github.com/bmarinov/otelcol-processor-incus/internal/metadata"
+	"go.uber.org/zap"
 )
 
 // Run on the Incus host:
@@ -19,7 +21,14 @@ func TestProbe_cgroupMetadata(t *testing.T) {
 		pid = "1"
 	}
 
-	src := newCgroupMetadataSource()
+	incusClient := incus.New("")
+	cache := metadata.NewCache(incusClient,
+		func(ctx context.Context) ([]incus.InstanceInfo, error) {
+			return incusClient.GetAllInstances(ctx)
+		},
+		zap.Must(zap.NewDevelopment()),
+	)
+	src := metadata.NewSource(cache, defaultProcRoot)
 
 	meta, err := src.GetInstanceMetadata(context.Background(), pid)
 	if err != nil {

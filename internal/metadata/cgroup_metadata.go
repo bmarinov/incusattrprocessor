@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/bmarinov/otelcol-processor-incus/internal/cgroup"
 	"github.com/bmarinov/otelcol-processor-incus/internal/incus"
+	"go.uber.org/zap"
 )
 
 type InstanceLookup interface {
@@ -47,7 +49,19 @@ type instanceKey struct {
 	name    string
 }
 
-func NewCache(lookup InstanceLookup, w WarmupFunc) *Cache {
+type Cache struct {
+	lookup       InstanceLookup
+	mu           sync.RWMutex
+	instanceMeta map[instanceKey]incus.InstanceInfo
+	warmup       WarmupFunc
+	log          *zap.Logger
+}
+
+type WarmupFunc func(ctx context.Context) ([]incus.InstanceInfo, error)
+
+func NewCache(lookup InstanceLookup,
+	w WarmupFunc,
+	log *zap.Logger) *Cache {
 	return &Cache{
 		lookup:       lookup,
 		instanceMeta: map[instanceKey]incus.InstanceInfo{},
@@ -55,27 +69,21 @@ func NewCache(lookup InstanceLookup, w WarmupFunc) *Cache {
 	}
 }
 
-type Cache struct {
-	lookup       InstanceLookup
-	mu           sync.RWMutex
-	instanceMeta map[instanceKey]incus.InstanceInfo
-	warmup       WarmupFunc
-}
-
-type WarmupFunc func(ctx context.Context) ([]incus.InstanceInfo, error)
-
 func (c *Cache) GetInstance(ctx context.Context, project string, name string) (incus.InstanceInfo, error) {
 	c.mu.RLock()
-	defer c.mu.RUnlock()
-
 	entry, got := c.instanceMeta[instanceKey{project: project, name: name}]
+	c.mu.RUnlock()
+
 	if got {
 		return entry, nil
 	}
 
 	go func() {
-		i, err := c.lookup.GetInstance(context.WithoutCancel(ctx), project, name)
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		i, err := c.lookup.GetInstance(ctx, project, name)
 		if err != nil {
+			c.log.Debug("background instance fetch", zap.Error(err), zap.String("incus.project", project), zap.String("incus.instance", name))
 			return
 		}
 		c.mu.Lock()

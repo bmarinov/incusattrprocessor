@@ -41,7 +41,7 @@ func TestIncusAttrProcessor_processProfiles(t *testing.T) {
 			Project:  "default",
 			Location: "node-0",
 		}
-		cacheLookup := metadata.NewCache(nil, warmupWith(seed))
+		cacheLookup := metadata.NewCache(nil, warmupWith(seed), zap.NewNop())
 		_ = cacheLookup.Start(t.Context())
 		src := metadata.NewSource(cacheLookup, procRoot)
 		p := newIncusAttrProcessor(
@@ -67,7 +67,7 @@ func TestIncusAttrProcessor_processProfiles(t *testing.T) {
 		procRoot := t.TempDir()
 		writeCgroup(t, procRoot, "300", "0::/system.slice/sshd.service\n")
 
-		cacheLookup := metadata.NewCache(nil, warmupWith())
+		cacheLookup := metadata.NewCache(nil, warmupWith(), zap.NewNop())
 		_ = cacheLookup.Start(t.Context())
 		src := metadata.NewSource(cacheLookup, procRoot)
 		p := newIncusAttrProcessor(nopSettings(), &processorConfig{}, src, noStart)
@@ -84,7 +84,7 @@ func TestIncusAttrProcessor_processProfiles(t *testing.T) {
 	})
 
 	t.Run("leaves resource unchanged when pid has no cgroup entry", func(t *testing.T) {
-		src := metadata.NewSource(metadata.NewCache(nil, warmupWith()), t.TempDir())
+		src := metadata.NewSource(metadata.NewCache(nil, warmupWith(), zap.NewNop()), t.TempDir())
 		p := newIncusAttrProcessor(nopSettings(), &processorConfig{}, src, noStart)
 
 		pd, _ := newProfilesWithPID(9999)
@@ -99,7 +99,7 @@ func TestIncusAttrProcessor_processProfiles(t *testing.T) {
 	})
 
 	t.Run("leaves resource with no pid attr unchanged", func(t *testing.T) {
-		src := metadata.NewSource(metadata.NewCache(nil, warmupWith()), t.TempDir())
+		src := metadata.NewSource(metadata.NewCache(nil, warmupWith(), zap.NewNop()), t.TempDir())
 		p := newIncusAttrProcessor(nopSettings(), &processorConfig{}, src, noStart)
 
 		pd := pprofile.NewProfiles()

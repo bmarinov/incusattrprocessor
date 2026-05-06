@@ -57,7 +57,7 @@ func (c *Client) GetInstance(ctx context.Context, project, name string) (Instanc
 func (c *Client) GetAllInstances(_ context.Context) ([]InstanceInfo, error) {
 	instances, err := c.server.GetInstancesAllProjects(api.InstanceTypeAny)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetching all instances: %w", err)
 	}
 
 	var result []InstanceInfo

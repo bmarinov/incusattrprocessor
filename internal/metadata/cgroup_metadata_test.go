@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/bmarinov/otelcol-processor-incus/internal/incus"
+	"go.uber.org/zap"
 )
 
 func writeCgroup(t *testing.T, procRoot, pid, content string) {
@@ -84,34 +85,35 @@ func TestCgroupMetadataSource_GetInstanceMetadata(t *testing.T) {
 }
 
 func TestCache_GetInstance(t *testing.T) {
-	c, _ := setupCache()
-
-	project, instance := "default", "runner"
-	expectedLoc, expectedArch := "node-0", "amd64"
-
-	// prepare
-	c.instanceMeta[instanceKey{project: project, name: instance}] = incus.InstanceInfo{
-		Name:         instance,
-		Project:      project,
-		Location:     expectedLoc,
-		Architecture: expectedArch,
-	}
-
 	t.Run("cache hit", func(t *testing.T) {
+		project, instance := "default", "runner"
+
+		// prepare
+		seed := incus.InstanceInfo{
+			Name:         instance,
+			Project:      project,
+			Location:     "node-0",
+			Architecture: "amd64",
+		}
+		c, _ := setupCache(seed)
+		_ = c.Start(t.Context())
+
 		result, err := c.GetInstance(t.Context(), project, instance)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if result.Architecture != expectedArch {
-			t.Errorf("expected %q got %q", expectedArch, result.Architecture)
+		if result.Architecture != seed.Architecture {
+			t.Errorf("expected %q got %q", seed.Architecture, result.Architecture)
 		}
-		if result.Location != expectedLoc {
-			t.Errorf("expected %q got %q", expectedLoc, result.Location)
+		if result.Location != seed.Location {
+			t.Errorf("expected %q got %q", seed.Location, result.Location)
 		}
 	})
-
 	t.Run("cache miss", func(t *testing.T) {
+		c, _ := setupCache()
 		unknownInstance := "unknown_new"
+		project := "blap"
+
 		result, err := c.GetInstance(t.Context(),
 			project, unknownInstance,
 		)
@@ -174,6 +176,7 @@ func setupCache(seed ...incus.InstanceInfo) (*Cache, *fakeInstanceLookup) {
 	c := NewCache(
 		&l,
 		func(ctx context.Context) ([]incus.InstanceInfo, error) { return seed, nil },
+		zap.NewNop(),
 	)
 	return c, &l
 }

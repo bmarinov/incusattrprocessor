@@ -35,9 +35,12 @@ func createProfilesProcessor(
 	pConfig := cfg.(*processorConfig)
 
 	incusClient := incus.New(pConfig.Connection.SocketPath)
-	cache := metadata.NewCache(incusClient, func(ctx context.Context) ([]incus.InstanceInfo, error) {
-		return incusClient.GetAllInstances(ctx)
-	})
+	cache := metadata.NewCache(incusClient,
+		func(ctx context.Context) ([]incus.InstanceInfo, error) {
+			return incusClient.GetAllInstances(ctx)
+		},
+		params.Logger,
+	)
 	lookup := metadata.NewSource(cache, defaultProcRoot)
 
 	p := newIncusAttrProcessor(params, pConfig, lookup, func(ctx context.Context) error {
