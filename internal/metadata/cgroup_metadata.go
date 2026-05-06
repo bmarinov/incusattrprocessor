@@ -65,6 +65,15 @@ type WarmupFunc func(ctx context.Context) ([]incus.InstanceInfo, error)
 func (c *Cache) GetInstance(ctx context.Context, project string, name string) (incus.InstanceInfo, error) {
 	entry, got := c.instanceMeta[instanceKey{project: project, name: name}]
 	if !got {
+
+		go func() {
+			i, err := c.lookup.GetInstance(ctx, project, name)
+			if err != nil {
+				return
+			}
+			c.instanceMeta[instanceKey{project: project, name: name}] = i
+		}()
+
 		return incus.InstanceInfo{
 			Name:    name,
 			Project: project,
@@ -75,7 +84,6 @@ func (c *Cache) GetInstance(ctx context.Context, project string, name string) (i
 
 func (c *Cache) Start(ctx context.Context) error {
 	instances, err := c.warmup(ctx)
-
 	if err != nil {
 		return fmt.Errorf("cache warmup: %w", err)
 	}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/bmarinov/otelcol-processor-incus/internal/incus"
@@ -83,10 +84,8 @@ func TestCgroupMetadataSource_GetInstanceMetadata(t *testing.T) {
 }
 
 func TestCache_GetInstance(t *testing.T) {
-	c := NewCache(
-		nil,
-		func(ctx context.Context) ([]incus.InstanceInfo, error) { return nil, nil },
-	)
+	c, _ := setupCache()
+
 	project, instance := "default", "runner"
 	expectedLoc, expectedArch := "node-0", "amd64"
 
@@ -124,6 +123,23 @@ func TestCache_GetInstance(t *testing.T) {
 			t.Errorf("expected partial result on miss, got %+v", result)
 		}
 	})
+	t.Run("concurrent cache misses", func(t *testing.T) {
+		c, _ := setupCache()
+
+		if err := c.Start(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+
+		var wg sync.WaitGroup
+		for range 10 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_, _ = c.GetInstance(t.Context(), "default", "new-container")
+			}()
+		}
+		wg.Wait()
+	})
 }
 
 func TestCache_Startup(t *testing.T) {
@@ -133,12 +149,8 @@ func TestCache_Startup(t *testing.T) {
 		Location:     "df",
 		Architecture: "arm64",
 	}
-	c := NewCache(nil,
-		func(ctx context.Context) ([]incus.InstanceInfo, error) {
-			return []incus.InstanceInfo{
-				seed,
-			}, nil
-		})
+
+	c, _ := setupCache(seed)
 
 	t.Run("retrieve after warmup", func(t *testing.T) {
 		err := c.Start(t.Context())
@@ -155,6 +167,15 @@ func TestCache_Startup(t *testing.T) {
 			t.Errorf("expected %+v got %+v", seed, result)
 		}
 	})
+}
+
+func setupCache(seed ...incus.InstanceInfo) (*Cache, *fakeInstanceLookup) {
+	l := fakeInstanceLookup{}
+	c := NewCache(
+		&l,
+		func(ctx context.Context) ([]incus.InstanceInfo, error) { return seed, nil },
+	)
+	return c, &l
 }
 
 type fakeInstanceLookup struct {
