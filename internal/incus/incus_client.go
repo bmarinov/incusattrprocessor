@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	incusclient "github.com/lxc/incus/v6/client"
+	"github.com/lxc/incus/v6/shared/api"
 )
 
 // Client looks up Incus instance metadata via the local Unix socket.
@@ -40,6 +41,7 @@ func New(socketPath string) *Client {
 
 // GetInstance returns the cluster member (location) hosting the instance.
 func (c *Client) GetInstance(ctx context.Context, project, name string) (InstanceInfo, error) {
+	// TODO: ctx reserved for retry loop
 	inst, _, err := c.server.UseProject(project).GetInstance(name)
 	if err != nil {
 		return InstanceInfo{}, fmt.Errorf("incus get instance %s/%s: %w", project, name, err)
@@ -50,12 +52,21 @@ func (c *Client) GetInstance(ctx context.Context, project, name string) (Instanc
 	// 	slog.Info("cfg", k, cfg)
 	// }
 
-	return InstanceInfo{
-		Name:         name,
-		Project:      project,
-		Location:     inst.Location,
-		Architecture: inst.Architecture,
-	}, nil
+	return toInfo(inst), nil
+}
+
+func (c *Client) GetAllInstances(_ context.Context) ([]InstanceInfo, error) {
+	instances, err := c.server.GetInstancesAllProjects(api.InstanceTypeAny)
+	if err != nil {
+		return nil, fmt.Errorf("fetching all instances: %w", err)
+	}
+
+	var result []InstanceInfo
+	for _, inst := range instances {
+		result = append(result, toInfo(&inst))
+	}
+
+	return result, nil
 }
 
 // SplitLabel splits an LXC cgroup label into a project and instance name.
@@ -77,4 +88,13 @@ func (c *Client) Start(ctx context.Context) error {
 	c.server = conn
 
 	return nil
+}
+
+func toInfo(i *api.Instance) InstanceInfo {
+	return InstanceInfo{
+		Name:         i.Name,
+		Project:      i.Project,
+		Location:     i.Location,
+		Architecture: i.Architecture,
+	}
 }
