@@ -74,7 +74,7 @@ func (c *Cache) GetInstance(ctx context.Context, project string, name string) (i
 	}
 
 	go func() {
-		i, err := c.lookup.GetInstance(ctx, project, name)
+		i, err := c.lookup.GetInstance(context.WithoutCancel(ctx), project, name)
 		if err != nil {
 			return
 		}
@@ -90,6 +90,9 @@ func (c *Cache) GetInstance(ctx context.Context, project string, name string) (i
 }
 
 func (c *Cache) Start(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	instances, err := c.warmup(ctx)
 	if err != nil {
 		return fmt.Errorf("cache warmup: %w", err)
