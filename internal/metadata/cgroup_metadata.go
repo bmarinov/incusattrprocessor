@@ -46,7 +46,7 @@ type instanceKey struct {
 	name    string
 }
 
-func NewCache(lookup InstanceLookup, w warmupFunc) *Cache {
+func NewCache(lookup InstanceLookup, w WarmupFunc) *Cache {
 	return &Cache{
 		lookup:       lookup,
 		instanceMeta: map[instanceKey]incus.InstanceInfo{},
@@ -57,10 +57,10 @@ func NewCache(lookup InstanceLookup, w warmupFunc) *Cache {
 type Cache struct {
 	lookup       InstanceLookup
 	instanceMeta map[instanceKey]incus.InstanceInfo
-	warmup       warmupFunc
+	warmup       WarmupFunc
 }
 
-type warmupFunc func(ctx context.Context) ([]incus.InstanceInfo, error)
+type WarmupFunc func(ctx context.Context) ([]incus.InstanceInfo, error)
 
 func (c *Cache) GetInstance(ctx context.Context, project string, name string) (incus.InstanceInfo, error) {
 	entry, got := c.instanceMeta[instanceKey{project: project, name: name}]
