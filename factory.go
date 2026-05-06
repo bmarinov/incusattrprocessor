@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/bmarinov/otelcol-processor-incus/internal/incus"
+	"github.com/bmarinov/otelcol-processor-incus/internal/metadata"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/consumer/xconsumer"
@@ -14,6 +15,8 @@ import (
 
 // typeStr defines the unique type identifier for the processor.
 var typeStr = component.MustNewType("incusattr")
+
+const defaultProcRoot = "/proc"
 
 func NewFactory() processor.Factory {
 	return xprocessor.NewFactory(
@@ -33,7 +36,7 @@ func createProfilesProcessor(
 
 	// todo: middleware/cache:
 	incusClient := incus.New(pConfig.Connection.SocketPath)
-	lookup := newCgroupMetadataSource(incusClient)
+	lookup := metadata.NewSource(incusClient, defaultProcRoot)
 
 	p := newIncusAttrProcessor(params, pConfig, lookup, incusClient.Start)
 
