@@ -41,6 +41,7 @@ func New(socketPath string) *Client {
 
 // GetInstance returns the cluster member (location) hosting the instance.
 func (c *Client) GetInstance(ctx context.Context, project, name string) (InstanceInfo, error) {
+	// TODO: ctx reserved for retry loop
 	inst, _, err := c.server.UseProject(project).GetInstance(name)
 	if err != nil {
 		return InstanceInfo{}, fmt.Errorf("incus get instance %s/%s: %w", project, name, err)
