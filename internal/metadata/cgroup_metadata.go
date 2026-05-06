@@ -3,6 +3,7 @@ package metadata
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/bmarinov/otelcol-processor-incus/internal/cgroup"
 	"github.com/bmarinov/otelcol-processor-incus/internal/incus"
@@ -56,6 +57,7 @@ func NewCache(lookup InstanceLookup, w WarmupFunc) *Cache {
 
 type Cache struct {
 	lookup       InstanceLookup
+	mu           sync.RWMutex
 	instanceMeta map[instanceKey]incus.InstanceInfo
 	warmup       WarmupFunc
 }
@@ -63,23 +65,28 @@ type Cache struct {
 type WarmupFunc func(ctx context.Context) ([]incus.InstanceInfo, error)
 
 func (c *Cache) GetInstance(ctx context.Context, project string, name string) (incus.InstanceInfo, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
 	entry, got := c.instanceMeta[instanceKey{project: project, name: name}]
-	if !got {
-
-		go func() {
-			i, err := c.lookup.GetInstance(ctx, project, name)
-			if err != nil {
-				return
-			}
-			c.instanceMeta[instanceKey{project: project, name: name}] = i
-		}()
-
-		return incus.InstanceInfo{
-			Name:    name,
-			Project: project,
-		}, nil
+	if got {
+		return entry, nil
 	}
-	return entry, nil
+
+	go func() {
+		i, err := c.lookup.GetInstance(ctx, project, name)
+		if err != nil {
+			return
+		}
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.instanceMeta[instanceKey{project: project, name: name}] = i
+	}()
+
+	return incus.InstanceInfo{
+		Name:    name,
+		Project: project,
+	}, nil
 }
 
 func (c *Cache) Start(ctx context.Context) error {
