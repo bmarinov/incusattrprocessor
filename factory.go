@@ -34,7 +34,7 @@ func createProfilesProcessor(
 ) (xprocessor.Profiles, error) {
 	pConfig := cfg.(*processorConfig)
 
-	incusClient := incus.New(pConfig.Connection.SocketPath)
+	incusClient := incus.New(pConfig.Connection.SocketPath, params.Logger)
 	cache := metadata.NewCache(incusClient,
 		func(ctx context.Context) ([]incus.InstanceInfo, error) {
 			return incusClient.GetAllInstances(ctx)

@@ -13,6 +13,7 @@ import (
 
 	incusclient "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
+	"go.uber.org/zap"
 )
 
 // Client looks up Incus instance metadata via the local Unix socket.
@@ -21,9 +22,9 @@ type Client struct {
 	srv       atomic.Pointer[conn]
 	connect   connectFunc
 	connectMu sync.Mutex
-
 	// rootCtx used on reconnect
 	rootCtx context.Context
+	log     *zap.Logger
 }
 
 // conn wraps the InstanceServer for the atomic swap.
@@ -42,7 +43,9 @@ type InstanceInfo struct {
 	// TODO: cpu limits
 }
 
-func New(socketPath string) *Client {
+func New(socketPath string,
+	logger *zap.Logger,
+) *Client {
 	return &Client{
 		connect: func(ctx context.Context) (incusclient.InstanceServer, error) {
 			conn, err := incusclient.ConnectIncusUnixWithContext(ctx, socketPath, nil)
@@ -51,6 +54,7 @@ func New(socketPath string) *Client {
 			}
 			return conn, nil
 		},
+		log: logger,
 	}
 }
 
@@ -120,9 +124,7 @@ func (c *Client) Start(ctx context.Context) error {
 			return fmt.Errorf("failed to start: %w", err)
 		}
 
-		// TODO:
-		// c.log.Warn()
-
+		c.log.Warn("Incus daemon unreachable, will retry", zap.Error(err))
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
