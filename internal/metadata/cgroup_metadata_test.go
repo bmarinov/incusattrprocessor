@@ -149,7 +149,7 @@ func TestCache_Startup(t *testing.T) {
 		Name:         "blap",
 		Project:      "foo",
 		Location:     "df",
-		Architecture: "arm64",
+		Architecture: "aarch64",
 	}
 
 	c, _ := setupCache(seed)

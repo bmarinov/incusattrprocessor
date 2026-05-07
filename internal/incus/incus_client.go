@@ -2,17 +2,35 @@ package incus
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"syscall"
+	"time"
 
 	incusclient "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
+	"go.uber.org/zap"
 )
 
 // Client looks up Incus instance metadata via the local Unix socket.
 type Client struct {
-	server incusclient.InstanceServer
-	conn   connectFunc
+	// pointer to the connection with the Incus daemon
+	srv       atomic.Pointer[conn]
+	connect   connectFunc
+	connectMu sync.Mutex
+	// rootCtx used on reconnect
+	rootCtx         context.Context
+	log             *zap.Logger
+	reconnectPolicy retryPolicy
+}
+
+// conn wraps the InstanceServer for the atomic swap.
+type conn struct {
+	srv incusclient.InstanceServer
 }
 
 type connectFunc func(ctx context.Context) (incusclient.InstanceServer, error)
@@ -26,23 +44,34 @@ type InstanceInfo struct {
 	// TODO: cpu limits
 }
 
-func New(socketPath string) *Client {
+func New(socketPath string,
+	logger *zap.Logger,
+	retryAttempts int,
+	retryDelay time.Duration,
+) *Client {
 	return &Client{
-		server: nil,
-		conn: func(ctx context.Context) (incusclient.InstanceServer, error) {
+		connect: func(ctx context.Context) (incusclient.InstanceServer, error) {
 			conn, err := incusclient.ConnectIncusUnixWithContext(ctx, socketPath, nil)
 			if err != nil {
 				return nil, fmt.Errorf("connecting to incus daemon: %w", err)
 			}
 			return conn, nil
 		},
+		log: logger,
+		reconnectPolicy: retryPolicy{
+			attempts: retryAttempts,
+			delay:    retryDelay,
+		},
 	}
 }
 
 // GetInstance returns the cluster member (location) hosting the instance.
 func (c *Client) GetInstance(ctx context.Context, project, name string) (InstanceInfo, error) {
-	// TODO: ctx reserved for retry loop
-	inst, _, err := c.server.UseProject(project).GetInstance(name)
+	inst, err := withReconnect(c, ctx, func(srv incusclient.InstanceServer) (*api.Instance, error) {
+		inst, _, err := srv.UseProject(project).GetInstance(name)
+		return inst, err
+	})
+
 	if err != nil {
 		return InstanceInfo{}, fmt.Errorf("incus get instance %s/%s: %w", project, name, err)
 	}
@@ -55,12 +84,14 @@ func (c *Client) GetInstance(ctx context.Context, project, name string) (Instanc
 	return toInfo(inst), nil
 }
 
-func (c *Client) GetAllInstances(_ context.Context) ([]InstanceInfo, error) {
-	instances, err := c.server.GetInstancesAllProjects(api.InstanceTypeAny)
+func (c *Client) GetAllInstances(ctx context.Context) ([]InstanceInfo, error) {
+	instances, err := withReconnect(c, ctx, func(srv incusclient.InstanceServer) ([]api.Instance, error) {
+		return srv.GetInstancesAllProjects(api.InstanceTypeAny)
+	})
+
 	if err != nil {
 		return nil, fmt.Errorf("fetching all instances: %w", err)
 	}
-
 	var result []InstanceInfo
 	for _, inst := range instances {
 		result = append(result, toInfo(&inst))
@@ -79,15 +110,36 @@ func SplitLabel(label string) (project, name string) {
 	return project, name
 }
 
+func isUnreachable(err error) bool {
+	return errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, fs.ErrNotExist)
+}
+
 func (c *Client) Start(ctx context.Context) error {
-	conn, err := c.conn(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to start: %w", err)
+	c.rootCtx = ctx
+
+	for {
+		srvConn, err := retry(ctx,
+			c.reconnectPolicy,
+			func() (result incusclient.InstanceServer, err error) {
+				return c.connect(ctx)
+			}, isUnreachable)
+
+		if err == nil {
+			c.srv.Store(&conn{srvConn})
+			return nil
+		}
+		if !isUnreachable(err) {
+			return fmt.Errorf("failed to start: %w", err)
+		}
+
+		c.log.Warn("Incus daemon unreachable, will retry", zap.Error(err))
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(5 * time.Second):
+		}
 	}
 
-	c.server = conn
-
-	return nil
 }
 
 func toInfo(i *api.Instance) InstanceInfo {
@@ -97,4 +149,44 @@ func toInfo(i *api.Instance) InstanceInfo {
 		Location:     i.Location,
 		Architecture: i.Architecture,
 	}
+}
+
+func withReconnect[T any](c *Client,
+	ctx context.Context,
+	op func(incusclient.InstanceServer) (T, error)) (T, error) {
+	return retry(ctx, c.reconnectPolicy, func() (T, error) {
+
+		currentConn := c.srv.Load()
+		result, err := op(currentConn.srv)
+		if err != nil && isUnreachable(err) {
+			err = c.reconnect(currentConn)
+			if err != nil {
+				return result, fmt.Errorf("reconnecting: %w", err)
+			}
+
+			return op(c.srv.Load().srv)
+		}
+		return result, err
+	},
+		isUnreachable,
+	)
+}
+
+// reconnect attempts to connect and swaps the underlying server connection.
+func (c *Client) reconnect(current *conn) error {
+	c.connectMu.Lock()
+	defer c.connectMu.Unlock()
+
+	if c.srv.Load() != current {
+		// already reconnected
+		return nil
+	}
+
+	srv, err := c.connect(c.rootCtx)
+	if err != nil {
+		return err
+	}
+
+	c.srv.Store(&conn{srv: srv})
+	return nil
 }
