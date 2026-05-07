@@ -18,7 +18,7 @@ import (
 // Client looks up Incus instance metadata via the local Unix socket.
 type Client struct {
 	// pointer to the connection with the Incus daemon
-	conn      atomic.Pointer[connection]
+	srv       atomic.Pointer[conn]
 	connect   connectFunc
 	connectMu sync.Mutex
 
@@ -26,8 +26,9 @@ type Client struct {
 	rootCtx context.Context
 }
 
-type connection struct {
-	server incusclient.InstanceServer
+// conn wraps the InstanceServer for the atomic swap.
+type conn struct {
+	srv incusclient.InstanceServer
 }
 
 type connectFunc func(ctx context.Context) (incusclient.InstanceServer, error)
@@ -112,7 +113,7 @@ func (c *Client) Start(ctx context.Context) error {
 			}, isUnreachable)
 
 		if err == nil {
-			c.conn.Store(&connection{srvConn})
+			c.srv.Store(&conn{srvConn})
 			return nil
 		}
 		if !isUnreachable(err) {
@@ -143,26 +144,27 @@ func toInfo(i *api.Instance) InstanceInfo {
 func withReconnect[T any](c *Client, ctx context.Context, op func(incusclient.InstanceServer) (T, error)) (T, error) {
 	return retry(ctx, func() (T, error) {
 
-		currentConn := c.conn.Load()
-		result, err := op(currentConn.server)
+		currentConn := c.srv.Load()
+		result, err := op(currentConn.srv)
 		if err != nil && isUnreachable(err) {
 			err = c.reconnect(currentConn)
 			if err != nil {
 				return result, fmt.Errorf("reconnecting: %w", err)
 			}
 
-			return op(c.conn.Load().server)
+			return op(c.srv.Load().srv)
 		}
 		return result, err
 	}, isUnreachable,
 	)
 }
 
-func (c *Client) reconnect(current *connection) error {
+// reconnect attempts to connect and swaps the underlying server connection.
+func (c *Client) reconnect(current *conn) error {
 	c.connectMu.Lock()
 	defer c.connectMu.Unlock()
 
-	if c.conn.Load() != current {
+	if c.srv.Load() != current {
 		// already reconnected
 		return nil
 	}
@@ -172,7 +174,7 @@ func (c *Client) reconnect(current *connection) error {
 		return err
 	}
 
-	c.conn.Store(&connection{server: srv})
+	c.srv.Store(&conn{srv: srv})
 	return nil
 }
 

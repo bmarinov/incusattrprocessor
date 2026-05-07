@@ -7,7 +7,11 @@ For each profiled process it reads `/proc/<pid>/cgroup`, extracts the container 
 - `incus.instance.project`
 - `incus.instance.location`
 
-This processor is in early preview/alpha.
+## Project status
+
+The processor is in early preview/alpha. OTEL profiles are in alpha.
+
+Note: run collector with `--feature-gates=service.profilesSupport` to enable profiling.
 
 ## Configuration
 
