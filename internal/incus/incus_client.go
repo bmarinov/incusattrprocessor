@@ -48,22 +48,10 @@ func New(socketPath string) *Client {
 
 // GetInstance returns the cluster member (location) hosting the instance.
 func (c *Client) GetInstance(ctx context.Context, project, name string) (InstanceInfo, error) {
-	inst, err := retry[*api.Instance](ctx)(func() (result *api.Instance, err error) {
+	inst, err := withReconnect(c, ctx, func() (*api.Instance, error) {
 		inst, _, err := c.server.UseProject(project).GetInstance(name)
-		if err != nil && isUnreachable(err) {
-			conn, connErr := c.connect(c.rootCtx)
-			if connErr != nil {
-
-				return nil, fmt.Errorf("reconnecting: %w", connErr)
-			}
-
-			// TODO: atomic
-			c.server = conn
-			inst, _, err := c.server.UseProject(project).GetInstance(name)
-			return inst, err
-		}
 		return inst, err
-	}, isUnreachable)
+	})
 
 	if err != nil {
 		return InstanceInfo{}, fmt.Errorf("incus get instance %s/%s: %w", project, name, err)
@@ -110,16 +98,30 @@ func isUnreachable(err error) bool {
 func (c *Client) Start(ctx context.Context) error {
 	c.rootCtx = ctx
 
-	srvConn, err := retry[incusclient.InstanceServer](ctx)(func() (result incusclient.InstanceServer, err error) {
-		return c.connect(c.rootCtx)
-	}, isUnreachable)
+	for {
+		srvConn, err := retry(ctx,
+			func() (result incusclient.InstanceServer, err error) {
+				return c.connect(ctx)
+			}, isUnreachable)
 
-	if err != nil {
-		return fmt.Errorf("failed to start: %w", err)
+		if err == nil {
+			c.server = srvConn
+			return nil
+		}
+		if !isUnreachable(err) {
+			return fmt.Errorf("failed to start: %w", err)
+		}
+
+		// TODO:
+		// c.log.Warn()
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(5 * time.Second):
+		}
 	}
 
-	c.server = srvConn
-	return nil
 }
 
 func toInfo(i *api.Instance) InstanceInfo {
@@ -132,7 +134,7 @@ func toInfo(i *api.Instance) InstanceInfo {
 }
 
 func withReconnect[T any](c *Client, ctx context.Context, op func() (T, error)) (T, error) {
-	return retry[T](ctx)(func() (T, error) {
+	return retry(ctx, func() (T, error) {
 		result, err := op()
 		if err != nil && isUnreachable(err) {
 			conn, connErr := c.connect(c.rootCtx)
@@ -149,35 +151,29 @@ func withReconnect[T any](c *Client, ctx context.Context, op func() (T, error)) 
 	)
 }
 
-func retry[T any](ctx context.Context) func(
+func retry[T any](ctx context.Context,
 	op func() (result T, err error),
 	shouldRetry func(error) bool,
 ) (T, error) {
-	return func(
-		op func() (result T, err error),
-		shouldRetry func(error) bool,
-	) (T, error) {
-		var result T
-		var err error
-		for range 3 {
-			select {
-			case <-ctx.Done():
-				return result, ctx.Err()
-			default:
-				result, err = op()
-				if err != nil && shouldRetry(err) {
-					select {
-					case <-ctx.Done():
-						return result, ctx.Err()
-					case <-time.After(1 * time.Second):
-						continue
-					}
-				} else {
-					return result, err
+	var result T
+	var err error
+	for range 3 {
+		select {
+		case <-ctx.Done():
+			return result, ctx.Err()
+		default:
+			result, err = op()
+			if err != nil && shouldRetry(err) {
+				select {
+				case <-ctx.Done():
+					return result, ctx.Err()
+				case <-time.After(1 * time.Second):
 				}
+			} else {
+				return result, err
 			}
 		}
-
-		return result, err
 	}
+
+	return result, err
 }
