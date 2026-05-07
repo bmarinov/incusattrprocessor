@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io/fs"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -15,11 +17,17 @@ import (
 
 // Client looks up Incus instance metadata via the local Unix socket.
 type Client struct {
-	// server connection with the Incus daemon
-	server  incusclient.InstanceServer
-	connect connectFunc
+	// pointer to the connection with the Incus daemon
+	conn      atomic.Pointer[connection]
+	connect   connectFunc
+	connectMu sync.Mutex
+
 	// rootCtx used on reconnect
 	rootCtx context.Context
+}
+
+type connection struct {
+	server incusclient.InstanceServer
 }
 
 type connectFunc func(ctx context.Context) (incusclient.InstanceServer, error)
@@ -35,7 +43,6 @@ type InstanceInfo struct {
 
 func New(socketPath string) *Client {
 	return &Client{
-		server: nil,
 		connect: func(ctx context.Context) (incusclient.InstanceServer, error) {
 			conn, err := incusclient.ConnectIncusUnixWithContext(ctx, socketPath, nil)
 			if err != nil {
@@ -48,8 +55,8 @@ func New(socketPath string) *Client {
 
 // GetInstance returns the cluster member (location) hosting the instance.
 func (c *Client) GetInstance(ctx context.Context, project, name string) (InstanceInfo, error) {
-	inst, err := withReconnect(c, ctx, func() (*api.Instance, error) {
-		inst, _, err := c.server.UseProject(project).GetInstance(name)
+	inst, err := withReconnect(c, ctx, func(srv incusclient.InstanceServer) (*api.Instance, error) {
+		inst, _, err := srv.UseProject(project).GetInstance(name)
 		return inst, err
 	})
 
@@ -66,8 +73,8 @@ func (c *Client) GetInstance(ctx context.Context, project, name string) (Instanc
 }
 
 func (c *Client) GetAllInstances(ctx context.Context) ([]InstanceInfo, error) {
-	instances, err := withReconnect(c, ctx, func() ([]api.Instance, error) {
-		return c.server.GetInstancesAllProjects(api.InstanceTypeAny)
+	instances, err := withReconnect(c, ctx, func(srv incusclient.InstanceServer) ([]api.Instance, error) {
+		return srv.GetInstancesAllProjects(api.InstanceTypeAny)
 	})
 
 	if err != nil {
@@ -105,7 +112,7 @@ func (c *Client) Start(ctx context.Context) error {
 			}, isUnreachable)
 
 		if err == nil {
-			c.server = srvConn
+			c.conn.Store(&connection{srvConn})
 			return nil
 		}
 		if !isUnreachable(err) {
@@ -133,22 +140,40 @@ func toInfo(i *api.Instance) InstanceInfo {
 	}
 }
 
-func withReconnect[T any](c *Client, ctx context.Context, op func() (T, error)) (T, error) {
+func withReconnect[T any](c *Client, ctx context.Context, op func(incusclient.InstanceServer) (T, error)) (T, error) {
 	return retry(ctx, func() (T, error) {
-		result, err := op()
+
+		currentConn := c.conn.Load()
+		result, err := op(currentConn.server)
 		if err != nil && isUnreachable(err) {
-			conn, connErr := c.connect(c.rootCtx)
-			if connErr != nil {
-				return result, fmt.Errorf("reconnecting: %w", connErr)
+			err = c.reconnect(currentConn)
+			if err != nil {
+				return result, fmt.Errorf("reconnecting: %w", err)
 			}
 
-			// TODO: atomic swap
-			c.server = conn
-			return op()
+			return op(c.conn.Load().server)
 		}
 		return result, err
 	}, isUnreachable,
 	)
+}
+
+func (c *Client) reconnect(current *connection) error {
+	c.connectMu.Lock()
+	defer c.connectMu.Unlock()
+
+	if c.conn.Load() != current {
+		// already reconnected
+		return nil
+	}
+
+	srv, err := c.connect(c.rootCtx)
+	if err != nil {
+		return err
+	}
+
+	c.conn.Store(&connection{server: srv})
+	return nil
 }
 
 func retry[T any](ctx context.Context,
