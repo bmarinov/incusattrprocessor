@@ -23,8 +23,9 @@ type Client struct {
 	connect   connectFunc
 	connectMu sync.Mutex
 	// rootCtx used on reconnect
-	rootCtx context.Context
-	log     *zap.Logger
+	rootCtx         context.Context
+	log             *zap.Logger
+	reconnectPolicy retryPolicy
 }
 
 // conn wraps the InstanceServer for the atomic swap.
@@ -45,6 +46,8 @@ type InstanceInfo struct {
 
 func New(socketPath string,
 	logger *zap.Logger,
+	retryAttempts int,
+	retryDelay time.Duration,
 ) *Client {
 	return &Client{
 		connect: func(ctx context.Context) (incusclient.InstanceServer, error) {
@@ -55,6 +58,10 @@ func New(socketPath string,
 			return conn, nil
 		},
 		log: logger,
+		reconnectPolicy: retryPolicy{
+			attempts: retryAttempts,
+			delay:    retryDelay,
+		},
 	}
 }
 
@@ -112,6 +119,7 @@ func (c *Client) Start(ctx context.Context) error {
 
 	for {
 		srvConn, err := retry(ctx,
+			c.reconnectPolicy,
 			func() (result incusclient.InstanceServer, err error) {
 				return c.connect(ctx)
 			}, isUnreachable)
@@ -143,8 +151,10 @@ func toInfo(i *api.Instance) InstanceInfo {
 	}
 }
 
-func withReconnect[T any](c *Client, ctx context.Context, op func(incusclient.InstanceServer) (T, error)) (T, error) {
-	return retry(ctx, func() (T, error) {
+func withReconnect[T any](c *Client,
+	ctx context.Context,
+	op func(incusclient.InstanceServer) (T, error)) (T, error) {
+	return retry(ctx, c.reconnectPolicy, func() (T, error) {
 
 		currentConn := c.srv.Load()
 		result, err := op(currentConn.srv)
@@ -157,7 +167,8 @@ func withReconnect[T any](c *Client, ctx context.Context, op func(incusclient.In
 			return op(c.srv.Load().srv)
 		}
 		return result, err
-	}, isUnreachable,
+	},
+		isUnreachable,
 	)
 }
 
@@ -181,12 +192,13 @@ func (c *Client) reconnect(current *conn) error {
 }
 
 func retry[T any](ctx context.Context,
+	p retryPolicy,
 	op func() (result T, err error),
 	shouldRetry func(error) bool,
 ) (T, error) {
 	var result T
 	var err error
-	for range 3 {
+	for range p.attempts {
 		select {
 		case <-ctx.Done():
 			return result, ctx.Err()
@@ -196,7 +208,7 @@ func retry[T any](ctx context.Context,
 				select {
 				case <-ctx.Done():
 					return result, ctx.Err()
-				case <-time.After(1 * time.Second):
+				case <-time.After(p.delay):
 				}
 			} else {
 				return result, err

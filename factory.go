@@ -2,6 +2,7 @@ package incusattrprocessor
 
 import (
 	"context"
+	"time"
 
 	"github.com/bmarinov/otelcol-processor-incus/internal/incus"
 	"github.com/bmarinov/otelcol-processor-incus/internal/metadata"
@@ -34,7 +35,10 @@ func createProfilesProcessor(
 ) (xprocessor.Profiles, error) {
 	pConfig := cfg.(*processorConfig)
 
-	incusClient := incus.New(pConfig.Connection.SocketPath, params.Logger)
+	incusClient := incus.New(pConfig.Connection.SocketPath,
+		params.Logger,
+		3, time.Second,
+	)
 	cache := metadata.NewCache(incusClient,
 		func(ctx context.Context) ([]incus.InstanceInfo, error) {
 			return incusClient.GetAllInstances(ctx)
