@@ -22,7 +22,7 @@ type Client struct {
 	srv       atomic.Pointer[conn]
 	connect   connectFunc
 	connectMu sync.Mutex
-	// done is closed on root processor context cancel.
+	// done is closed on processor context cancel.
 	done            <-chan struct{}
 	log             *zap.Logger
 	reconnectPolicy retryPolicy
@@ -36,10 +36,9 @@ type conn struct {
 type connectFunc func(ctx context.Context) (incusclient.InstanceServer, error)
 
 type InstanceInfo struct {
-	Name     string
-	Project  string
-	Location string
-	// TODO: check if not already present in ebpf profile attrs
+	Name         string
+	Project      string
+	Location     string
 	Architecture string
 	// TODO: cpu limits
 }

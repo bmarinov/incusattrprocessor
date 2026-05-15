@@ -12,11 +12,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// func TestMain(m *testing.M) {
-
-// 	os.Exit(m.Run())
-// }
-
 func TestClient_GetAllInstances(t *testing.T) {
 	c := setup(t)
 
