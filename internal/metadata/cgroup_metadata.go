@@ -66,6 +66,7 @@ func NewCache(lookup InstanceLookup,
 		lookup:       lookup,
 		instanceMeta: map[instanceKey]incus.InstanceInfo{},
 		warmup:       w,
+		log:          log,
 	}
 }
 

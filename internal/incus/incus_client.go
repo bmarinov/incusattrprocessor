@@ -22,8 +22,8 @@ type Client struct {
 	srv       atomic.Pointer[conn]
 	connect   connectFunc
 	connectMu sync.Mutex
-	// rootCtx used on reconnect
-	rootCtx         context.Context
+	// done is closed on processor context cancel.
+	done            <-chan struct{}
 	log             *zap.Logger
 	reconnectPolicy retryPolicy
 }
@@ -36,10 +36,9 @@ type conn struct {
 type connectFunc func(ctx context.Context) (incusclient.InstanceServer, error)
 
 type InstanceInfo struct {
-	Name     string
-	Project  string
-	Location string
-	// TODO: check if not already present in ebpf profile attrs
+	Name         string
+	Project      string
+	Location     string
 	Architecture string
 	// TODO: cpu limits
 }
@@ -115,7 +114,7 @@ func isUnreachable(err error) bool {
 }
 
 func (c *Client) Start(ctx context.Context) error {
-	c.rootCtx = ctx
+	c.done = ctx.Done()
 
 	for {
 		srvConn, err := retry(ctx,
@@ -182,7 +181,17 @@ func (c *Client) reconnect(current *conn) error {
 		return nil
 	}
 
-	srv, err := c.connect(c.rootCtx)
+	connectCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		select {
+		case <-c.done:
+			cancel()
+		case <-connectCtx.Done():
+		}
+	}()
+
+	srv, err := c.connect(connectCtx)
 	if err != nil {
 		return err
 	}

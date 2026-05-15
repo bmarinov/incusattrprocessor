@@ -1,8 +1,70 @@
 package incus
 
 import (
+	"context"
+	"sync"
+	"sync/atomic"
 	"testing"
+
+	incusclient "github.com/lxc/incus/v6/client"
+	"go.uber.org/zap"
 )
+
+func TestReconnect_ConcurrentCalls(t *testing.T) {
+	t.Parallel()
+	const goroutines = 10
+
+	var connectCalls atomic.Int32
+
+	c := &Client{
+		log:             zap.NewNop(),
+		reconnectPolicy: retryPolicy{attempts: 1},
+		connect: func(_ context.Context) (incusclient.InstanceServer, error) {
+			connectCalls.Add(1)
+			return &fakeServer{}, nil
+		},
+	}
+
+	err := c.Start(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// verify
+	initialConnCount := connectCalls.Load()
+	if initialConnCount != 1 {
+		t.Fatal()
+	}
+
+	// act
+	staleConn := c.srv.Load()
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for range goroutines {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			if err := c.reconnect(staleConn); err != nil {
+				t.Errorf("reconnect: %v", err)
+			}
+		}()
+	}
+
+	close(start)
+	wg.Wait()
+
+	expectedCalls := initialConnCount + 1
+	if n := connectCalls.Load(); n != expectedCalls {
+		t.Errorf("expected %d connect calls got %d", expectedCalls, n)
+	}
+}
+
+// fakeServer embeds InstanceServer for tests
+type fakeServer struct {
+	incusclient.InstanceServer
+}
 
 func TestSplitLabel(t *testing.T) {
 	tests := []struct {
