@@ -4,7 +4,7 @@
 #
 # Usage:
 #   ./scripts/start-incus-vm.sh
-#   INCUS_SOCKET=/tmp/incus-test.sock go test -tags integration ./...
+#   INCUS_SOCKET=/tmp/incus-test.sock go test ./...
 #   ./scripts/stop-incus-vm.sh
 
 set -euo pipefail
