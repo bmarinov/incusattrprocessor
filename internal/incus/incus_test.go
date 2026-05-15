@@ -16,8 +16,6 @@ func TestReconnect_ConcurrentCalls(t *testing.T) {
 
 	var connectCalls atomic.Int32
 
-	staleConn := &conn{srv: &fakeServer{}}
-
 	c := &Client{
 		log:             zap.NewNop(),
 		reconnectPolicy: retryPolicy{attempts: 1},
@@ -26,8 +24,20 @@ func TestReconnect_ConcurrentCalls(t *testing.T) {
 			return &fakeServer{}, nil
 		},
 	}
-	c.rootCtx = context.Background()
-	c.srv.Store(staleConn)
+
+	err := c.Start(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// verify
+	initialConnCount := connectCalls.Load()
+	if initialConnCount != 1 {
+		t.Fatal()
+	}
+
+	// act
+	staleConn := c.srv.Load()
 
 	start := make(chan struct{})
 	var wg sync.WaitGroup
@@ -45,8 +55,9 @@ func TestReconnect_ConcurrentCalls(t *testing.T) {
 	close(start)
 	wg.Wait()
 
-	if n := connectCalls.Load(); n != 1 {
-		t.Errorf("expected exactly 1 connect call got %d", n)
+	expectedCalls := initialConnCount + 1
+	if n := connectCalls.Load(); n != expectedCalls {
+		t.Errorf("expected %d connect calls got %d", expectedCalls, n)
 	}
 }
 
