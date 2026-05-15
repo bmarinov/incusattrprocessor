@@ -12,6 +12,13 @@ import (
 	"go.uber.org/zap"
 )
 
+func TestMain(m *testing.M) {
+	if os.Getenv("INCUS_SOCKET") == "" {
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
+
 func TestClient_GetAllInstances(t *testing.T) {
 	c := setup(t)
 
@@ -57,9 +64,6 @@ func TestClient_GetInstance(t *testing.T) {
 func setup(t *testing.T) *incus.Client {
 	t.Helper()
 	socket := os.Getenv("INCUS_SOCKET")
-	if socket == "" {
-		t.Skip("INCUS_SOCKET not set — run: ./scripts/start-incus-vm.sh")
-	}
 	if _, err := os.Stat(socket); err != nil {
 		t.Skipf("INCUS_SOCKET %s not reachable (VM not running?): %v", socket, err)
 	}
@@ -72,13 +76,10 @@ func setup(t *testing.T) *incus.Client {
 }
 
 // testInstance creates a container in the default project.
-// Registers a cleanup to delete it af ter the test.
+// Registers a cleanup to delete it after the test.
 func testInstance(t *testing.T, name string) incus.InstanceInfo {
 	t.Helper()
 	socket := os.Getenv("INCUS_SOCKET")
-	if socket == "" {
-		t.Fatal("INCUS_SOCKET not set")
-	}
 
 	const (
 		project = "default"
