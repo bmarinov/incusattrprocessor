@@ -12,6 +12,23 @@ import (
 	"go.uber.org/zap"
 )
 
+type cacheAction int
+
+const (
+	actionPurge cacheAction = iota
+	actionUpdate
+)
+
+// instance to cache action map.
+var instanceActions = map[string]cacheAction{
+	"instance-stopped":   actionPurge,
+	"instance-shutdown":  actionPurge,
+	"instance-deleted":   actionPurge,
+	"instance-renamed":   actionUpdate,
+	"instance-started":   actionUpdate,
+	"instance-restarted": actionUpdate,
+}
+
 type InstanceLookup interface {
 	GetInstance(ctx context.Context, project, name string) (incus.InstanceInfo, error)
 }

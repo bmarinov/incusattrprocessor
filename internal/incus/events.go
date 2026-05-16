@@ -5,6 +5,7 @@ package incus
 
 const eventTypeLifecycle = "lifecycle"
 
+// deprecated
 var EventsPurgeCache []string = []string{
 	"instance-stopped",
 	"instance-shutdown",
@@ -12,6 +13,7 @@ var EventsPurgeCache []string = []string{
 	"instance-renamed", // `old_name`: purge
 }
 
+// deprecated
 var EventsUpdateCache []string = []string{
 	"instance-started",
 	"instance-renamed", // new name -> cache

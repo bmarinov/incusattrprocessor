@@ -2,6 +2,7 @@ package incus
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -128,7 +129,32 @@ func (c *Client) GetAllInstances(ctx context.Context) ([]InstanceInfo, error) {
 
 // Subscribe implements [metadata.InstanceEvents].
 func (c *Client) Subscribe(ctx context.Context, callback func(e InstanceEvent)) {
-	panic("unimplemented")
+	listen, err := c.srv.Load().srv.GetEventsAllProjects()
+	if err != nil {
+		// TODO: register handlers separately and only add subscribers here.
+		panic(err)
+	}
+
+	t, err := listen.AddHandler([]string{eventTypeLifecycle}, func(e api.Event) {
+		var metadata api.EventLifecycle
+		err := json.Unmarshal(e.Metadata, &metadata)
+		if err != nil {
+			return
+		}
+
+		callback(InstanceEvent{
+			Name:    metadata.Name,
+			Project: metadata.Project,
+			Action:  metadata.Action,
+		})
+	})
+
+	if err != nil {
+		panic(err) // WIP
+	}
+
+	// use t to unsubscribe?
+	_ = t
 }
 
 // SplitLabel splits an LXC cgroup label into a project and instance name.
