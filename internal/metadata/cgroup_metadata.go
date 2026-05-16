@@ -3,6 +3,7 @@ package metadata
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -13,6 +14,10 @@ import (
 
 type InstanceLookup interface {
 	GetInstance(ctx context.Context, project, name string) (incus.InstanceInfo, error)
+}
+
+type InstanceEvents interface {
+	Subscribe(ctx context.Context, callback func(e incus.InstanceEvent))
 }
 
 type CgroupMetadataSource struct {
@@ -51,6 +56,7 @@ type instanceKey struct {
 
 type Cache struct {
 	lookup       InstanceLookup
+	events       InstanceEvents
 	mu           sync.RWMutex
 	instanceMeta map[instanceKey]incus.InstanceInfo
 	warmup       WarmupFunc
@@ -60,10 +66,12 @@ type Cache struct {
 type WarmupFunc func(ctx context.Context) ([]incus.InstanceInfo, error)
 
 func NewCache(lookup InstanceLookup,
+	events InstanceEvents,
 	w WarmupFunc,
 	log *zap.Logger) *Cache {
 	return &Cache{
 		lookup:       lookup,
+		events:       events,
 		instanceMeta: map[instanceKey]incus.InstanceInfo{},
 		warmup:       w,
 		log:          log,
@@ -80,6 +88,7 @@ func (c *Cache) GetInstance(ctx context.Context, project string, name string) (i
 	}
 
 	go func() {
+		// TODO: decoupling from caller context, reasses approach & timeout:
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
 		i, err := c.lookup.GetInstance(ctx, project, name)
@@ -99,6 +108,45 @@ func (c *Cache) GetInstance(ctx context.Context, project string, name string) (i
 }
 
 func (c *Cache) Start(ctx context.Context) error {
+	err := doWarmup(ctx, c)
+	if err != nil {
+		return fmt.Errorf("client warmup: %w", err)
+	}
+
+	c.events.Subscribe(ctx, func(e incus.InstanceEvent) {
+		c.mu.RLock()
+		_, inCache := c.instanceMeta[instanceKey{project: e.Project, name: e.Name}]
+		c.mu.RUnlock()
+		if !inCache {
+			return
+		}
+
+		c.mu.Lock()
+		_, inCache = c.instanceMeta[instanceKey{project: e.Project, name: e.Name}]
+
+		// TODO: use a map:
+		if slices.Contains(incus.EventsPurgeCache, e.Action) && inCache {
+			// TODO: see if old_name can be exposed in a clean way
+			if e.Action != "instance-renamed" {
+				delete(c.instanceMeta, instanceKey{project: e.Project, name: e.Name})
+			}
+		}
+
+		// need to unlock so GetInstance can acquire a R -> W lock
+		c.mu.Unlock()
+
+		if slices.Contains(incus.EventsUpdateCache, e.Action) {
+			_, err := c.GetInstance(ctx, e.Project, e.Name)
+			if err != nil {
+				// TODO: warn? cache never returns err
+			}
+		}
+	})
+
+	return nil
+}
+
+func doWarmup(ctx context.Context, c *Cache) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 

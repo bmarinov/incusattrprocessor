@@ -64,6 +64,33 @@ func New(socketPath string,
 	}
 }
 
+func (c *Client) Start(ctx context.Context) error {
+	c.done = ctx.Done()
+
+	for {
+		srvConn, err := retry(ctx,
+			c.reconnectPolicy,
+			func() (result incusclient.InstanceServer, err error) {
+				return c.connect(ctx)
+			}, isUnreachable)
+
+		if err == nil {
+			c.srv.Store(&conn{srvConn})
+			return nil
+		}
+		if !isUnreachable(err) {
+			return fmt.Errorf("failed to start: %w", err)
+		}
+
+		c.log.Warn("Incus daemon unreachable, will retry", zap.Error(err))
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(5 * time.Second):
+		}
+	}
+}
+
 // GetInstance returns the cluster member (location) hosting the instance.
 func (c *Client) GetInstance(ctx context.Context, project, name string) (InstanceInfo, error) {
 	inst, err := withReconnect(c, ctx, func(srv incusclient.InstanceServer) (*api.Instance, error) {
@@ -99,6 +126,11 @@ func (c *Client) GetAllInstances(ctx context.Context) ([]InstanceInfo, error) {
 	return result, nil
 }
 
+// Subscribe implements [metadata.InstanceEvents].
+func (c *Client) Subscribe(ctx context.Context, callback func(e InstanceEvent)) {
+	panic("unimplemented")
+}
+
 // SplitLabel splits an LXC cgroup label into a project and instance name.
 // For instances with no project prefix, "default" is returned.
 func SplitLabel(label string) (project, name string) {
@@ -111,34 +143,6 @@ func SplitLabel(label string) (project, name string) {
 
 func isUnreachable(err error) bool {
 	return errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, fs.ErrNotExist)
-}
-
-func (c *Client) Start(ctx context.Context) error {
-	c.done = ctx.Done()
-
-	for {
-		srvConn, err := retry(ctx,
-			c.reconnectPolicy,
-			func() (result incusclient.InstanceServer, err error) {
-				return c.connect(ctx)
-			}, isUnreachable)
-
-		if err == nil {
-			c.srv.Store(&conn{srvConn})
-			return nil
-		}
-		if !isUnreachable(err) {
-			return fmt.Errorf("failed to start: %w", err)
-		}
-
-		c.log.Warn("Incus daemon unreachable, will retry", zap.Error(err))
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(5 * time.Second):
-		}
-	}
-
 }
 
 func toInfo(i *api.Instance) InstanceInfo {

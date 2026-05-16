@@ -95,7 +95,7 @@ func TestCache_GetInstance(t *testing.T) {
 			Location:     "node-0",
 			Architecture: "amd64",
 		}
-		c, _ := setupCache(seed)
+		c, _, _ := setupCache(seed)
 		_ = c.Start(t.Context())
 
 		result, err := c.GetInstance(t.Context(), project, instance)
@@ -110,7 +110,7 @@ func TestCache_GetInstance(t *testing.T) {
 		}
 	})
 	t.Run("cache miss", func(t *testing.T) {
-		c, _ := setupCache()
+		c, _, _ := setupCache()
 		unknownInstance := "unknown_new"
 		project := "blap"
 
@@ -126,7 +126,7 @@ func TestCache_GetInstance(t *testing.T) {
 		}
 	})
 	t.Run("concurrent cache misses", func(t *testing.T) {
-		c, _ := setupCache()
+		c, _, _ := setupCache()
 
 		if err := c.Start(t.Context()); err != nil {
 			t.Fatal(err)
@@ -142,6 +142,32 @@ func TestCache_GetInstance(t *testing.T) {
 		}
 		wg.Wait()
 	})
+	t.Run("instance stopped", func(t *testing.T) {
+		initial := incus.InstanceInfo{
+			Name:         "once",
+			Project:      "test",
+			Architecture: "amd64",
+			Location:     "none",
+		}
+
+		c, _, events := setupCache(initial)
+		_ = c.Start(t.Context())
+
+		// act
+		events.Push(incus.InstanceEvent{
+			Name:    initial.Name,
+			Project: initial.Project,
+			Action:  incus.EventsPurgeCache[0],
+		})
+
+		result, err := c.GetInstance(t.Context(), initial.Name, initial.Project)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Architecture != "" || result.Location != "" {
+			t.Errorf("should return cached result with purged cache, got %+v", result)
+		}
+	})
 }
 
 func TestCache_Startup(t *testing.T) {
@@ -152,7 +178,7 @@ func TestCache_Startup(t *testing.T) {
 		Architecture: "aarch64",
 	}
 
-	c, _ := setupCache(seed)
+	c, _, _ := setupCache(seed)
 
 	t.Run("retrieve after warmup", func(t *testing.T) {
 		err := c.Start(t.Context())
@@ -171,14 +197,16 @@ func TestCache_Startup(t *testing.T) {
 	})
 }
 
-func setupCache(seed ...incus.InstanceInfo) (*Cache, *fakeInstanceLookup) {
+func setupCache(seed ...incus.InstanceInfo) (*Cache, *fakeInstanceLookup, *fakeEventSource) {
 	l := fakeInstanceLookup{}
+	events := fakeEventSource{}
 	c := NewCache(
 		&l,
+		&events,
 		func(ctx context.Context) ([]incus.InstanceInfo, error) { return seed, nil },
 		zap.NewNop(),
 	)
-	return c, &l
+	return c, &l, &events
 }
 
 type fakeInstanceLookup struct {
@@ -191,4 +219,19 @@ func (f *fakeInstanceLookup) GetInstance(_ context.Context, project, name string
 	info.Name = name
 	info.Project = project
 	return info, f.err
+}
+
+type fakeEventSource struct {
+	subscriptions []func(incus.InstanceEvent)
+}
+
+// Subscribe implements [InstanceEvents].
+func (s *fakeEventSource) Subscribe(ctx context.Context, cb func(e incus.InstanceEvent)) {
+	s.subscriptions = append(s.subscriptions, cb)
+}
+
+func (s *fakeEventSource) Push(e incus.InstanceEvent) {
+	for _, cb := range s.subscriptions {
+		cb(e)
+	}
 }

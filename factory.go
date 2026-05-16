@@ -39,7 +39,9 @@ func createProfilesProcessor(
 		params.Logger,
 		3, time.Second,
 	)
-	cache := metadata.NewCache(incusClient,
+	cache := metadata.NewCache(
+		incusClient,
+		incusClient,
 		func(ctx context.Context) ([]incus.InstanceInfo, error) {
 			return incusClient.GetAllInstances(ctx)
 		},
