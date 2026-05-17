@@ -146,6 +146,7 @@ func (c *Client) Subscribe(ctx context.Context, callback func(e InstanceEvent)) 
 			Name:    metadata.Name,
 			Project: metadata.Project,
 			Action:  metadata.Action,
+			OldName: contextString(metadata.Context, "old_name"),
 		})
 	})
 
@@ -178,6 +179,11 @@ func toInfo(i *api.Instance) InstanceInfo {
 		Location:     i.Location,
 		Architecture: i.Architecture,
 	}
+}
+
+func contextString(ctx map[string]any, key string) string {
+	s, _ := ctx[key].(string)
+	return s
 }
 
 func withReconnect[T any](c *Client,

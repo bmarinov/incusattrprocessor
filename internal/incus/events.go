@@ -18,4 +18,5 @@ type InstanceEvent struct {
 	Name    string
 	Project string
 	Action  string
+	OldName string // only set for EventInstanceRenamed
 }
