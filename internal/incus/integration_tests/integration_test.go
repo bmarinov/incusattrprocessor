@@ -61,6 +61,38 @@ func TestClient_GetInstance(t *testing.T) {
 	}
 }
 
+func TestClient_Subscribe(t *testing.T) {
+	c := setup(t)
+
+	const expectedAction = "instance-started"
+
+	eventsCh := make(chan incus.InstanceEvent, 10)
+	c.Subscribe(t.Context(), func(e incus.InstanceEvent) {
+		eventsCh <- e
+	})
+
+	newInst := testInstance(t, "foo-baz")
+
+	var found *incus.InstanceEvent
+	timeout := time.After(3 * time.Second)
+
+	for found == nil {
+		select {
+		case msg := <-eventsCh:
+			if msg.Action == expectedAction {
+				found = &msg
+			}
+		case <-timeout:
+			t.Fatal("timed out waiting for event")
+		}
+	}
+
+	if found.Name != newInst.Name ||
+		found.Project != newInst.Project {
+		t.Errorf("unexpected values for container event: %+v", found)
+	}
+}
+
 func setup(t *testing.T) *incus.Client {
 	t.Helper()
 	socket := os.Getenv("INCUS_SOCKET")
@@ -116,6 +148,8 @@ func testInstance(t *testing.T, name string) incus.InstanceInfo {
 		t.Fatalf("createTestInstance: wait: %v", err)
 	}
 
+	startInstance(t, srv, name)
+
 	t.Cleanup(func() {
 		if op, err := proj.DeleteInstance(name); err == nil {
 			_ = op.WaitContext(ctx)
@@ -123,4 +157,18 @@ func testInstance(t *testing.T, name string) incus.InstanceInfo {
 	})
 
 	return incus.InstanceInfo{Name: name, Project: project}
+}
+
+func startInstance(t *testing.T, srv incusclient.InstanceServer, name string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	t.Cleanup(cancel)
+
+	op, err := srv.UpdateInstanceState(name, api.InstanceStatePut{Action: "start"}, "")
+	if err != nil {
+		t.Fatalf("startInstance %s: %v", name, err)
+	}
+	if err := op.WaitContext(ctx); err != nil {
+		t.Fatalf("startInstance %s: wait: %v", name, err)
+	}
 }

@@ -11,8 +11,29 @@ import (
 	"go.uber.org/zap"
 )
 
+type cacheAction int
+
+const (
+	actionPurge cacheAction = iota
+	actionUpdate
+)
+
+// instance to cache action map.
+var instanceActions = map[string]cacheAction{
+	incus.EventInstanceStopped:   actionPurge,
+	incus.EventInstanceShutdown:  actionPurge,
+	incus.EventInstanceDeleted:   actionPurge,
+	incus.EventInstanceRenamed:   actionUpdate,
+	incus.EventInstanceStarted:   actionUpdate,
+	incus.EventInstanceRestarted: actionUpdate,
+}
+
 type InstanceLookup interface {
 	GetInstance(ctx context.Context, project, name string) (incus.InstanceInfo, error)
+}
+
+type InstanceEvents interface {
+	Subscribe(ctx context.Context, callback func(e incus.InstanceEvent))
 }
 
 type CgroupMetadataSource struct {
@@ -51,6 +72,7 @@ type instanceKey struct {
 
 type Cache struct {
 	lookup       InstanceLookup
+	events       InstanceEvents
 	mu           sync.RWMutex
 	instanceMeta map[instanceKey]incus.InstanceInfo
 	warmup       WarmupFunc
@@ -60,10 +82,12 @@ type Cache struct {
 type WarmupFunc func(ctx context.Context) ([]incus.InstanceInfo, error)
 
 func NewCache(lookup InstanceLookup,
+	events InstanceEvents,
 	w WarmupFunc,
 	log *zap.Logger) *Cache {
 	return &Cache{
 		lookup:       lookup,
+		events:       events,
 		instanceMeta: map[instanceKey]incus.InstanceInfo{},
 		warmup:       w,
 		log:          log,
@@ -80,6 +104,7 @@ func (c *Cache) GetInstance(ctx context.Context, project string, name string) (i
 	}
 
 	go func() {
+		// TODO: decoupling from caller context, reasses approach & timeout:
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
 		i, err := c.lookup.GetInstance(ctx, project, name)
@@ -99,6 +124,33 @@ func (c *Cache) GetInstance(ctx context.Context, project string, name string) (i
 }
 
 func (c *Cache) Start(ctx context.Context) error {
+	err := doWarmup(ctx, c)
+	if err != nil {
+		return fmt.Errorf("client warmup: %w", err)
+	}
+
+	c.events.Subscribe(ctx, func(e incus.InstanceEvent) {
+		action, got := instanceActions[e.Action]
+		if !got {
+			return
+		}
+
+		c.mu.Lock()
+
+		// TODO: see if old_name can be exposed in a clean way and refactor:
+		delete(c.instanceMeta, instanceKey{project: e.Project, name: e.Name})
+
+		c.mu.Unlock()
+		if action == actionUpdate {
+			// c.mu has to be released so GetInstance can acquire the lock.
+			_, _ = c.GetInstance(ctx, e.Project, e.Name)
+		}
+	})
+
+	return nil
+}
+
+func doWarmup(ctx context.Context, c *Cache) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
