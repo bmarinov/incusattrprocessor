@@ -11,16 +11,6 @@ import (
 )
 
 func TestRead(t *testing.T) {
-	// t.Run("cgroup path from file", func(t *testing.T) {
-	// 	path, err := Read(path.Join("testdata", "proc"), "host-process")
-	// 	if err != nil {
-	// 		t.Fatal(err)
-	// 	}
-	// 	expected := "/system.slice/incus.service"
-	// 	if expected != path {
-	// 		t.Errorf("expected %q got %q", expected, path)
-	// 	}
-	// })
 	t.Run("no such path", func(t *testing.T) {
 		path, err := Read("foo/proc", "123")
 		if err == nil {
