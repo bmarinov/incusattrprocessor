@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/bmarinov/otelcol-processor-incus/internal/incus"
 	"go.uber.org/zap"
@@ -171,18 +172,9 @@ func TestCache_GetInstance(t *testing.T) {
 		}
 	})
 	t.Run("update events refresh the cache entry", func(t *testing.T) {
-		for _, action := range []string{
-			incus.EventInstanceRenamed,
-			incus.EventInstanceStarted,
-			incus.EventInstanceRestarted,
-		} {
+		for _, action := range []string{incus.EventInstanceStarted, incus.EventInstanceRestarted} {
 			t.Run(action, func(t *testing.T) {
-				initial := incus.InstanceInfo{
-					Name:         "tripple",
-					Project:      "projects",
-					Architecture: "amd64",
-					Location:     "none",
-				}
+				initial := incus.InstanceInfo{Name: "tripple", Project: "projects", Architecture: "amd64", Location: "none"}
 				c, lookup, events := setupCache(initial)
 				_ = c.Start(t.Context())
 				lookup.info.Location = "new-node"
@@ -198,6 +190,44 @@ func TestCache_GetInstance(t *testing.T) {
 					t.Errorf("expected new Location after update, got %+v", result)
 				}
 			})
+		}
+	})
+	t.Run("rename event evicts old name and fetches new", func(t *testing.T) {
+		initial := incus.InstanceInfo{
+			Name:         "old-name",
+			Project:      "projects",
+			Architecture: "amd64",
+			Location:     "none",
+		}
+		c, lookup, events := setupCache(initial)
+		_ = c.Start(t.Context())
+
+		// Architecture is the canary: it is empty for a cache miss.
+		lookup.info.Architecture = "aarch64"
+
+		const newName = "new-name"
+		events.Push(incus.InstanceEvent{
+			Name:    newName,
+			OldName: initial.Name,
+			Project: initial.Project,
+			Action:  incus.EventInstanceRenamed,
+		})
+		lookup.WaitFetch(t)
+
+		result, err := c.GetInstance(t.Context(), initial.Project, newName)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Architecture == "" {
+			t.Errorf("expected fully fetched entry for new name, got partial result: %+v", result)
+		}
+		// old name should be evicted
+		old, err := c.GetInstance(t.Context(), initial.Project, initial.Name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if old.Architecture != "" || old.Location != "" {
+			t.Errorf("expected empty entry for old name after rename, got %+v", old)
 		}
 	})
 }
@@ -263,7 +293,7 @@ func (f *fakeInstanceLookup) WaitFetch(t *testing.T) {
 	t.Helper()
 	select {
 	case <-f.fetched:
-	case <-t.Context().Done():
+	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for background instance fetch")
 	}
 }
@@ -278,6 +308,9 @@ func (s *fakeEventSource) Subscribe(ctx context.Context, cb func(e incus.Instanc
 }
 
 func (s *fakeEventSource) Push(e incus.InstanceEvent) {
+	if e.Action == incus.EventInstanceRenamed && e.OldName == "" {
+		panic("test: rename event requires OldName to be set")
+	}
 	for _, cb := range s.subscriptions {
 		cb(e)
 	}
