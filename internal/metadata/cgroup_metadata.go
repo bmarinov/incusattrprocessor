@@ -135,33 +135,15 @@ func (c *Cache) Start(ctx context.Context) error {
 			return
 		}
 
-		c.mu.RLock()
-		_, inCache := c.instanceMeta[instanceKey{project: e.Project, name: e.Name}]
-		c.mu.RUnlock()
-		if !inCache && action != actionUpdate {
-			return
-		}
-
 		c.mu.Lock()
-		_, inCache = c.instanceMeta[instanceKey{project: e.Project, name: e.Name}]
 
-		// TODO: see if old_name can be exposed in a clean way
-		switch action {
-		case actionPurge:
-			if inCache {
-				delete(c.instanceMeta, instanceKey{project: e.Project, name: e.Name})
-			}
-			c.mu.Unlock()
-		case actionUpdate:
-			if inCache {
-				delete(c.instanceMeta, instanceKey{project: e.Project, name: e.Name})
-			}
-			// need to unlock so GetInstance can acquire a R -> W lock
-			c.mu.Unlock()
-			_, err := c.GetInstance(ctx, e.Project, e.Name)
-			if err != nil {
-				// TODO: warn? cache never returns err
-			}
+		// TODO: see if old_name can be exposed in a clean way and refactor:
+		delete(c.instanceMeta, instanceKey{project: e.Project, name: e.Name})
+
+		c.mu.Unlock()
+		if action == actionUpdate {
+			// c.mu has to be released so GetInstance can acquire the lock.
+			_, _ = c.GetInstance(ctx, e.Project, e.Name)
 		}
 	})
 
