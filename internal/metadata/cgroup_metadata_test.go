@@ -142,30 +142,48 @@ func TestCache_GetInstance(t *testing.T) {
 		}
 		wg.Wait()
 	})
-	t.Run("instance stopped", func(t *testing.T) {
-		initial := incus.InstanceInfo{
-			Name:         "once",
-			Project:      "test",
-			Architecture: "amd64",
-			Location:     "none",
-		}
+	t.Run("instance event", func(t *testing.T) {
+		for eventAction, cacheAct := range instanceActions {
+			t.Run(eventAction, func(t *testing.T) {
+				initial := incus.InstanceInfo{
+					Name:         "once",
+					Project:      "test",
+					Architecture: "amd64",
+					Location:     "none",
+				}
 
-		c, _, events := setupCache(initial)
-		_ = c.Start(t.Context())
+				c, lookup, events := setupCache(initial)
 
-		// act
-		events.Push(incus.InstanceEvent{
-			Name:    initial.Name,
-			Project: initial.Project,
-			Action:  incus.EventsPurgeCache[0],
-		})
+				_ = c.Start(t.Context())
 
-		result, err := c.GetInstance(t.Context(), initial.Name, initial.Project)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if result.Architecture != "" || result.Location != "" {
-			t.Errorf("should return cached result with purged cache, got %+v", result)
+				updatedLoc := "new-node"
+				// act
+				if cacheAct == actionUpdate {
+					lookup.info.Location = updatedLoc
+				}
+
+				events.Push(incus.InstanceEvent{
+					Name:    initial.Name,
+					Project: initial.Project,
+					Action:  eventAction,
+				})
+
+				result, err := c.GetInstance(t.Context(), initial.Name, initial.Project)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				switch cacheAct {
+				case actionPurge:
+					if result.Architecture != "" || result.Location != "" {
+						t.Errorf("should return cached result with purged cache, got %+v", result)
+					}
+				case actionUpdate:
+					if result.Location != updatedLoc {
+						t.Errorf("should update cached entry on event %q: got %+v", eventAction, result)
+					}
+				}
+			})
 		}
 	})
 }

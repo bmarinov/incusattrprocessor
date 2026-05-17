@@ -3,7 +3,6 @@ package metadata
 import (
 	"context"
 	"fmt"
-	"slices"
 	"sync"
 	"time"
 
@@ -131,28 +130,34 @@ func (c *Cache) Start(ctx context.Context) error {
 	}
 
 	c.events.Subscribe(ctx, func(e incus.InstanceEvent) {
+		action, got := instanceActions[e.Action]
+		if !got {
+			return
+		}
+
 		c.mu.RLock()
 		_, inCache := c.instanceMeta[instanceKey{project: e.Project, name: e.Name}]
 		c.mu.RUnlock()
-		if !inCache {
+		if !inCache && action != actionUpdate {
 			return
 		}
 
 		c.mu.Lock()
 		_, inCache = c.instanceMeta[instanceKey{project: e.Project, name: e.Name}]
 
-		// TODO: use a map:
-		if slices.Contains(incus.EventsPurgeCache, e.Action) && inCache {
-			// TODO: see if old_name can be exposed in a clean way
-			if e.Action != "instance-renamed" {
+		// TODO: see if old_name can be exposed in a clean way
+		switch action {
+		case actionPurge:
+			if inCache {
 				delete(c.instanceMeta, instanceKey{project: e.Project, name: e.Name})
 			}
-		}
-
-		// need to unlock so GetInstance can acquire a R -> W lock
-		c.mu.Unlock()
-
-		if slices.Contains(incus.EventsUpdateCache, e.Action) {
+			c.mu.Unlock()
+		case actionUpdate:
+			if inCache {
+				delete(c.instanceMeta, instanceKey{project: e.Project, name: e.Name})
+			}
+			// need to unlock so GetInstance can acquire a R -> W lock
+			c.mu.Unlock()
 			_, err := c.GetInstance(ctx, e.Project, e.Name)
 			if err != nil {
 				// TODO: warn? cache never returns err
