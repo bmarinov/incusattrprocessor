@@ -168,7 +168,7 @@ func TestCache_GetInstance(t *testing.T) {
 					Action:  eventAction,
 				})
 
-				result, err := c.GetInstance(t.Context(), initial.Name, initial.Project)
+				result, err := c.GetInstance(t.Context(), initial.Project, initial.Name)
 				if err != nil {
 					t.Fatal(err)
 				}
