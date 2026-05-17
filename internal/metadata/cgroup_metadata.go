@@ -136,10 +136,11 @@ func (c *Cache) Start(ctx context.Context) error {
 		}
 
 		c.mu.Lock()
-
-		// TODO: see if old_name can be exposed in a clean way and refactor:
-		delete(c.instanceMeta, instanceKey{project: e.Project, name: e.Name})
-
+		if e.Action == incus.EventInstanceRenamed {
+			delete(c.instanceMeta, instanceKey{project: e.Project, name: e.OldName})
+		} else {
+			delete(c.instanceMeta, instanceKey{project: e.Project, name: e.Name})
+		}
 		c.mu.Unlock()
 		if action == actionUpdate {
 			// c.mu has to be released so GetInstance can acquire the lock.
