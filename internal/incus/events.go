@@ -5,21 +5,14 @@ package incus
 
 const eventTypeLifecycle = "lifecycle"
 
-// deprecated
-var EventsPurgeCache []string = []string{
-	"instance-stopped",
-	"instance-shutdown",
-	"instance-deleted",
-	"instance-renamed", // `old_name`: purge
-}
-
-// deprecated
-var EventsUpdateCache []string = []string{
-	"instance-started",
-	"instance-renamed", // new name -> cache
-	"instance-restarted",
-	// "instance-updated", -> add only if tracked/cached field can change
-}
+const (
+	EventInstanceStarted   = "instance-started"
+	EventInstanceStopped   = "instance-stopped"
+	EventInstanceShutdown  = "instance-shutdown"
+	EventInstanceDeleted   = "instance-deleted"
+	EventInstanceRenamed   = "instance-renamed"
+	EventInstanceRestarted = "instance-restarted"
+)
 
 type InstanceEvent struct {
 	Name    string

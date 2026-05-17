@@ -142,46 +142,60 @@ func TestCache_GetInstance(t *testing.T) {
 		}
 		wg.Wait()
 	})
-	t.Run("instance event", func(t *testing.T) {
-		for eventAction, cacheAct := range instanceActions {
-			t.Run(eventAction, func(t *testing.T) {
+	t.Run("purge events clear the cache entry", func(t *testing.T) {
+		for _, action := range []string{
+			incus.EventInstanceStopped,
+			incus.EventInstanceShutdown,
+			incus.EventInstanceDeleted,
+		} {
+			t.Run(action, func(t *testing.T) {
 				initial := incus.InstanceInfo{
 					Name:         "once",
 					Project:      "test",
 					Architecture: "amd64",
 					Location:     "none",
 				}
-
-				c, lookup, events := setupCache(initial)
-
+				c, _, events := setupCache(initial)
 				_ = c.Start(t.Context())
 
-				updatedLoc := "new-node"
-				// act
-				if cacheAct == actionUpdate {
-					lookup.info.Location = updatedLoc
-				}
-
-				events.Push(incus.InstanceEvent{
-					Name:    initial.Name,
-					Project: initial.Project,
-					Action:  eventAction,
-				})
+				events.Push(incus.InstanceEvent{Name: initial.Name, Project: initial.Project, Action: action})
 
 				result, err := c.GetInstance(t.Context(), initial.Project, initial.Name)
 				if err != nil {
 					t.Fatal(err)
 				}
+				if result.Architecture != "" || result.Location != "" {
+					t.Errorf("expected empty entry after purge, got %+v", result)
+				}
+			})
+		}
+	})
+	t.Run("update events refresh the cache entry", func(t *testing.T) {
+		for _, action := range []string{
+			incus.EventInstanceRenamed,
+			incus.EventInstanceStarted,
+			incus.EventInstanceRestarted,
+		} {
+			t.Run(action, func(t *testing.T) {
+				initial := incus.InstanceInfo{
+					Name:         "tripple",
+					Project:      "projects",
+					Architecture: "amd64",
+					Location:     "none",
+				}
+				c, lookup, events := setupCache(initial)
+				_ = c.Start(t.Context())
+				lookup.info.Location = "new-node"
 
-				switch cacheAct {
-				case actionPurge:
-					if result.Architecture != "" || result.Location != "" {
-						t.Errorf("should return cached result with purged cache, got %+v", result)
-					}
-				case actionUpdate:
-					if result.Location != updatedLoc {
-						t.Errorf("should update cached entry on event %q: got %+v", eventAction, result)
-					}
+				events.Push(incus.InstanceEvent{Name: initial.Name, Project: initial.Project, Action: action})
+				lookup.WaitFetch(t)
+
+				result, err := c.GetInstance(t.Context(), initial.Project, initial.Name)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if result.Location != "new-node" {
+					t.Errorf("expected new Location after update, got %+v", result)
 				}
 			})
 		}
@@ -216,7 +230,7 @@ func TestCache_Startup(t *testing.T) {
 }
 
 func setupCache(seed ...incus.InstanceInfo) (*Cache, *fakeInstanceLookup, *fakeEventSource) {
-	l := fakeInstanceLookup{}
+	l := fakeInstanceLookup{fetched: make(chan struct{}, 1)}
 	events := fakeEventSource{}
 	c := NewCache(
 		&l,
@@ -228,15 +242,30 @@ func setupCache(seed ...incus.InstanceInfo) (*Cache, *fakeInstanceLookup, *fakeE
 }
 
 type fakeInstanceLookup struct {
-	info incus.InstanceInfo
-	err  error
+	info    incus.InstanceInfo
+	err     error
+	fetched chan struct{}
 }
 
 func (f *fakeInstanceLookup) GetInstance(_ context.Context, project, name string) (incus.InstanceInfo, error) {
+	select {
+	case f.fetched <- struct{}{}:
+	default:
+	}
 	info := f.info
 	info.Name = name
 	info.Project = project
 	return info, f.err
+}
+
+// WaitFetch blocks until fresh instance info is fetched with GetInstance.
+func (f *fakeInstanceLookup) WaitFetch(t *testing.T) {
+	t.Helper()
+	select {
+	case <-f.fetched:
+	case <-t.Context().Done():
+		t.Fatal("timed out waiting for background instance fetch")
+	}
 }
 
 type fakeEventSource struct {

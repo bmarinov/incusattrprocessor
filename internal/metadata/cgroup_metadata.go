@@ -20,12 +20,12 @@ const (
 
 // instance to cache action map.
 var instanceActions = map[string]cacheAction{
-	"instance-stopped":   actionPurge,
-	"instance-shutdown":  actionPurge,
-	"instance-deleted":   actionPurge,
-	"instance-renamed":   actionUpdate,
-	"instance-started":   actionUpdate,
-	"instance-restarted": actionUpdate,
+	incus.EventInstanceStopped:   actionPurge,
+	incus.EventInstanceShutdown:  actionPurge,
+	incus.EventInstanceDeleted:   actionPurge,
+	incus.EventInstanceRenamed:   actionUpdate,
+	incus.EventInstanceStarted:   actionUpdate,
+	incus.EventInstanceRestarted: actionUpdate,
 }
 
 type InstanceLookup interface {
