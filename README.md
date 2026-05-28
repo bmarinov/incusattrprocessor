@@ -7,6 +7,8 @@ For each profiled process it reads `/proc/<pid>/cgroup`, extracts the container 
 - `incus.instance.project`
 - `incus.instance.location`
 
+_Note:_ The eBPF profiler does not have visibility into processes running on VMs. Only Incus containers (LXC-backed) are supported.
+
 ## Project status
 
 The processor is in early preview/alpha. OTEL profiles are in alpha.
@@ -55,6 +57,35 @@ go vet ./...
 ```
 
 The cgroup probe test needs a live LXC host to run.
+
+
+### Integration tests
+
+Running `./scripts/test-integration.sh` will set up a VM with Incus and run all tests, including the client integration suite.
+
+The tests require `INCUS_SOCKET` to be set.
+
+To run and debug the tests:
+`settings.json`:
+```json
+{
+  "go.testEnvVars": {
+    "INCUS_SOCKET": "/tmp/incus-test.sock"
+  }
+}
+```
+
+The tests at `./internal/incus/integration_tests/` can now be executed. The VM must be stopped and cleaned up manually:
+```sh
+# start the VM
+./scripts/start-incus-vm.sh
+
+# run / debug integration tests
+
+# clean up
+./scripts/stop-incus-vm.sh
+```
+
 
 ### Remote debugging
 

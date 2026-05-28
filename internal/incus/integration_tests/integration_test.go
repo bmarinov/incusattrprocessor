@@ -20,10 +20,10 @@ func TestMain(m *testing.M) {
 }
 
 func TestClient_GetAllInstances(t *testing.T) {
-	c := setup(t)
+	c, env := setup(t)
 
-	a := testInstance(t, "test-a")
-	b := testInstance(t, "test-b")
+	a := env.testInstance("test-a")
+	b := env.testInstance("test-b")
 
 	instances, err := c.GetAllInstances(t.Context())
 	if err != nil {
@@ -45,9 +45,9 @@ func TestClient_GetAllInstances(t *testing.T) {
 }
 
 func TestClient_GetInstance(t *testing.T) {
-	c := setup(t)
+	c, env := setup(t)
 
-	info := testInstance(t, "foozy-bar")
+	info := env.testInstance("foozy-bar")
 
 	result, err := c.GetInstance(t.Context(), info.Project, info.Name)
 	if err != nil {
@@ -62,16 +62,14 @@ func TestClient_GetInstance(t *testing.T) {
 }
 
 func TestClient_Subscribe(t *testing.T) {
-	c := setup(t)
-
-	const expectedAction = "instance-started"
+	c, env := setup(t)
 
 	eventsCh := make(chan incus.InstanceEvent, 10)
 	c.Subscribe(t.Context(), func(e incus.InstanceEvent) {
 		eventsCh <- e
 	})
 
-	newInst := testInstance(t, "foo-baz")
+	newInst := env.testInstance("foo-baz")
 
 	var found *incus.InstanceEvent
 	timeout := time.After(3 * time.Second)
@@ -79,7 +77,7 @@ func TestClient_Subscribe(t *testing.T) {
 	for found == nil {
 		select {
 		case msg := <-eventsCh:
-			if msg.Action == expectedAction {
+			if msg.Action == incus.EventInstanceStarted {
 				found = &msg
 			}
 		case <-timeout:
@@ -87,51 +85,122 @@ func TestClient_Subscribe(t *testing.T) {
 		}
 	}
 
-	if found.Name != newInst.Name ||
-		found.Project != newInst.Project {
+	if found.Name != newInst.Name || found.Project != newInst.Project {
 		t.Errorf("unexpected values for container event: %+v", found)
 	}
 }
 
-func setup(t *testing.T) *incus.Client {
+func TestClient_Subscribe_Stop(t *testing.T) {
+	c, env := setup(t)
+
+	eventsCh := make(chan incus.InstanceEvent, 10)
+	c.Subscribe(t.Context(), func(e incus.InstanceEvent) {
+		eventsCh <- e
+	})
+
+	inst := env.testInstance("foo-stop")
+	env.stopInstance(inst.Name)
+
+	var found *incus.InstanceEvent
+	timeout := time.After(3 * time.Second)
+
+	for found == nil {
+		select {
+		case msg := <-eventsCh:
+			if msg.Action == incus.EventInstanceStopped {
+				found = &msg
+			}
+		case <-timeout:
+			t.Fatal("timed out waiting for event")
+		}
+	}
+
+	if found.Name != inst.Name || found.Project != inst.Project {
+		t.Errorf("unexpected values for container event: %+v", found)
+	}
+}
+
+func TestClient_Subscribe_Rename(t *testing.T) {
+	c, env := setup(t)
+
+	instance := env.createInstance("old-name")
+
+	eventsCh := make(chan incus.InstanceEvent, 10)
+	c.Subscribe(t.Context(), func(e incus.InstanceEvent) {
+		if e.Action == incus.EventInstanceRenamed {
+			eventsCh <- e
+		}
+	})
+
+	const newName = "new-foo"
+	env.renameInstance(instance.Name, newName)
+
+	select {
+	case e := <-eventsCh:
+		if e.Name != newName {
+			t.Errorf("Name: expected %q (new name), got %q", newName, e.Name)
+		}
+		if e.OldName != instance.Name {
+			t.Errorf("OldName: expected %q got %q", instance.Name, e.OldName)
+		}
+		if e.Project != "default" {
+			t.Errorf("Project: expected %q got %q", "default", e.Project)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for event")
+	}
+}
+
+func setup(t *testing.T) (*incus.Client, *testEnv) {
 	t.Helper()
 	socket := os.Getenv("INCUS_SOCKET")
 	if _, err := os.Stat(socket); err != nil {
 		t.Skipf("INCUS_SOCKET %s not reachable (VM not running?): %v", socket, err)
 	}
-	c := incus.New(socket, zap.NewNop(), 3, time.Second)
-	err := c.Start(t.Context())
+
+	srv, err := incusclient.ConnectIncusUnixWithContext(context.Background(), socket, nil)
 	if err != nil {
+		t.Fatalf("setup: connect: %v", err)
+	}
+	c := incus.New(socket, zap.NewNop(), 3, time.Second)
+	if err := c.Start(t.Context()); err != nil {
 		t.Fatalf("client.Start(): %v", err)
 	}
-	return c
+
+	return c, &testEnv{t: t, srv: srv}
 }
 
-// testInstance creates a container in the default project.
-// Registers a cleanup to delete it after the test.
-func testInstance(t *testing.T, name string) incus.InstanceInfo {
-	t.Helper()
-	socket := os.Getenv("INCUS_SOCKET")
+type testEnv struct {
+	t   *testing.T
+	srv incusclient.InstanceServer
+}
 
-	const (
-		project = "default"
-	)
+// testInstance creates and starts a container with name.
+func (e *testEnv) testInstance(name string) incus.InstanceInfo {
+	e.t.Helper()
+	info := e.createInstance(name)
+	e.startInstance(info.Name)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	t.Cleanup(cancel)
+	return info
+}
 
-	srv, err := incusclient.ConnectIncusUnixWithContext(ctx, socket, nil)
-	if err != nil {
-		t.Fatalf("createTestInstance: connect: %v", err)
+func forceDelete(srv incusclient.InstanceServer, name string) {
+	proj := srv.UseProject("default")
+	if op, err := proj.UpdateInstanceState(name, api.InstanceStatePut{Action: "stop", Force: true}, ""); err == nil {
+		_ = op.WaitContext(context.Background())
 	}
-	proj := srv.UseProject(project)
-
-	// Delete leftover from a previous run:
 	if op, err := proj.DeleteInstance(name); err == nil {
-		_ = op.WaitContext(ctx)
+		_ = op.WaitContext(context.Background())
 	}
+}
 
-	op, err := proj.CreateInstance(api.InstancesPost{
+// createInstance creates a stopped container.
+func (e *testEnv) createInstance(name string) incus.InstanceInfo {
+	e.t.Helper()
+
+	forceDelete(e.srv, name)
+
+	op, err := e.srv.UseProject("default").CreateInstance(api.InstancesPost{
 		Name: name,
 		Type: api.InstanceTypeContainer,
 		Source: api.InstanceSource{
@@ -142,33 +211,54 @@ func testInstance(t *testing.T, name string) incus.InstanceInfo {
 		},
 	})
 	if err != nil {
-		t.Fatalf("createTestInstance: create: %v", err)
+		e.t.Fatalf("createInstance %s: %v", name, err)
 	}
-	if err := op.WaitContext(ctx); err != nil {
-		t.Fatalf("createTestInstance: wait: %v", err)
+	if err := op.WaitContext(e.t.Context()); err != nil {
+		e.t.Fatalf("createInstance %s: wait: %v", name, err)
 	}
 
-	startInstance(t, srv, name)
+	e.t.Cleanup(func() { forceDelete(e.srv, name) })
 
-	t.Cleanup(func() {
-		if op, err := proj.DeleteInstance(name); err == nil {
-			_ = op.WaitContext(ctx)
-		}
-	})
-
-	return incus.InstanceInfo{Name: name, Project: project}
+	return incus.InstanceInfo{Name: name, Project: "default"}
 }
 
-func startInstance(t *testing.T, srv incusclient.InstanceServer, name string) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	t.Cleanup(cancel)
-
-	op, err := srv.UpdateInstanceState(name, api.InstanceStatePut{Action: "start"}, "")
+func (e *testEnv) startInstance(name string) {
+	e.t.Helper()
+	op, err := e.srv.UseProject("default").UpdateInstanceState(
+		name, api.InstanceStatePut{Action: "start"}, "",
+	)
 	if err != nil {
-		t.Fatalf("startInstance %s: %v", name, err)
+		e.t.Fatalf("startInstance %s: %v", name, err)
 	}
-	if err := op.WaitContext(ctx); err != nil {
-		t.Fatalf("startInstance %s: wait: %v", name, err)
+	if err := op.WaitContext(e.t.Context()); err != nil {
+		e.t.Fatalf("startInstance %s: wait: %v", name, err)
 	}
+}
+
+func (e *testEnv) stopInstance(name string) {
+	e.t.Helper()
+	op, err := e.srv.UseProject("default").UpdateInstanceState(
+		name, api.InstanceStatePut{Action: "stop", Force: true}, "",
+	)
+	if err != nil {
+		e.t.Fatalf("stopInstance %s: %v", name, err)
+	}
+	if err := op.WaitContext(e.t.Context()); err != nil {
+		e.t.Fatalf("stopInstance %s: wait: %v", name, err)
+	}
+}
+
+// renameInstance renames a stopped instance.
+func (e *testEnv) renameInstance(oldName, newName string) {
+	e.t.Helper()
+	op, err := e.srv.UseProject("default").RenameInstance(
+		oldName, api.InstancePost{Name: newName},
+	)
+	if err != nil {
+		e.t.Fatalf("renameInstance %s to %s: %v", oldName, newName, err)
+	}
+	if err := op.WaitContext(e.t.Context()); err != nil {
+		e.t.Fatalf("renameInstance %s to %s: wait: %v", oldName, newName, err)
+	}
+	e.t.Cleanup(func() { forceDelete(e.srv, newName) })
 }

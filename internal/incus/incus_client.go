@@ -129,11 +129,47 @@ func (c *Client) GetAllInstances(ctx context.Context) ([]InstanceInfo, error) {
 
 // Subscribe implements [metadata.InstanceEvents].
 func (c *Client) Subscribe(ctx context.Context, callback func(e InstanceEvent)) {
+	go c.subscribeLoop(ctx, callback)
+}
+
+// subscribeLoop ensures that the connection for the event subscription is live.
+// Blocks until ctx is cancelled.
+func (c *Client) subscribeLoop(ctx context.Context, callback func(e InstanceEvent)) {
+	for {
+		err := c.handleLifecycleEvents(ctx, callback)
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			c.log.Warn("event subscriber disconnect, reconnecting", zap.Error(err))
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(c.reconnectPolicy.delay):
+		}
+	}
+}
+
+func (c *Client) handleLifecycleEvents(ctx context.Context, callback func(e InstanceEvent)) error {
+	// TODO: register handlers separately and only add subscribers here.
 	listen, err := c.srv.Load().srv.GetEventsAllProjects()
 	if err != nil {
-		// TODO: register handlers separately and only add subscribers here.
-		panic(err)
+		return fmt.Errorf("lifecycle event listener: %w", err)
 	}
+
+	// on disconnect:
+	disconnect := make(chan struct{})
+	defer close(disconnect)
+
+	go func() {
+		select {
+		case <-ctx.Done():
+			listen.Disconnect()
+		case <-disconnect:
+		}
+	}()
 
 	t, err := listen.AddHandler([]string{eventTypeLifecycle}, func(e api.Event) {
 		var metadata api.EventLifecycle
@@ -146,15 +182,18 @@ func (c *Client) Subscribe(ctx context.Context, callback func(e InstanceEvent)) 
 			Name:    metadata.Name,
 			Project: metadata.Project,
 			Action:  metadata.Action,
+			OldName: contextString(metadata.Context, "old_name"),
 		})
 	})
 
 	if err != nil {
-		panic(err) // WIP
+		return fmt.Errorf("adding lifecycle handler to listener: %w", err)
 	}
 
 	// use t to unsubscribe?
 	_ = t
+
+	return listen.Wait()
 }
 
 // SplitLabel splits an LXC cgroup label into a project and instance name.
@@ -178,6 +217,11 @@ func toInfo(i *api.Instance) InstanceInfo {
 		Location:     i.Location,
 		Architecture: i.Architecture,
 	}
+}
+
+func contextString(ctx map[string]any, key string) string {
+	s, _ := ctx[key].(string)
+	return s
 }
 
 func withReconnect[T any](c *Client,
