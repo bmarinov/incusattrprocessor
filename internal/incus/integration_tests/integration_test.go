@@ -90,6 +90,36 @@ func TestClient_Subscribe(t *testing.T) {
 	}
 }
 
+func TestClient_Subscribe_Stop(t *testing.T) {
+	c, env := setup(t)
+
+	eventsCh := make(chan incus.InstanceEvent, 10)
+	c.Subscribe(t.Context(), func(e incus.InstanceEvent) {
+		eventsCh <- e
+	})
+
+	inst := env.testInstance("foo-stop")
+	env.stopInstance(inst.Name)
+
+	var found *incus.InstanceEvent
+	timeout := time.After(3 * time.Second)
+
+	for found == nil {
+		select {
+		case msg := <-eventsCh:
+			if msg.Action == incus.EventInstanceStopped {
+				found = &msg
+			}
+		case <-timeout:
+			t.Fatal("timed out waiting for event")
+		}
+	}
+
+	if found.Name != inst.Name || found.Project != inst.Project {
+		t.Errorf("unexpected values for container event: %+v", found)
+	}
+}
+
 func TestClient_Subscribe_Rename(t *testing.T) {
 	c, env := setup(t)
 

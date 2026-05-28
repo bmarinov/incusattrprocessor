@@ -159,9 +159,16 @@ func (c *Client) handleLifecycleEvents(ctx context.Context, callback func(e Inst
 		return fmt.Errorf("lifecycle event listener: %w", err)
 	}
 
+	// on disconnect:
+	disconnect := make(chan struct{})
+	defer close(disconnect)
+
 	go func() {
-		<-ctx.Done()
-		listen.Disconnect()
+		select {
+		case <-ctx.Done():
+			listen.Disconnect()
+		case <-disconnect:
+		}
 	}()
 
 	t, err := listen.AddHandler([]string{eventTypeLifecycle}, func(e api.Event) {
