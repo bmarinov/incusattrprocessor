@@ -28,7 +28,8 @@ processors:
 ```
 
 ## Prerequisites
-- Host running Incus with LXC containers
+- Host running Incus v7.0 (LTS) or newer.
+- LXC containers to gather profiles from - VM processes cannot be profiled.
 - Supported [Linux kernel](https://github.com/open-telemetry/opentelemetry-ebpf-profiler#supported-linux-kernel-version) version for the upstream epbf profiler.
 
 ## Build
