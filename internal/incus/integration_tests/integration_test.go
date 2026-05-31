@@ -15,7 +15,6 @@ import (
 )
 
 var (
-	vmRunDir = filepath.Join(os.Getenv("HOME"), ".cache/incus-test-vm/run")
 	vmSSHKey = filepath.Join(os.Getenv("HOME"), ".cache/incus-test-vm/id_ed25519")
 )
 
