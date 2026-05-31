@@ -33,7 +33,12 @@ type InstanceLookup interface {
 }
 
 type InstanceEvents interface {
-	Subscribe(ctx context.Context, callback func(e incus.InstanceEvent))
+	//Subscribe registers a callback for instance events.
+	// onConnect is called each time the event stream is established (including initial connect).
+	Subscribe(ctx context.Context,
+		callback func(e incus.InstanceEvent),
+		onConnect func(),
+	)
 }
 
 type CgroupMetadataSource struct {
@@ -124,31 +129,43 @@ func (c *Cache) GetInstance(ctx context.Context, project string, name string) (i
 }
 
 func (c *Cache) Start(ctx context.Context) error {
-	err := doWarmup(ctx, c)
-	if err != nil {
-		return fmt.Errorf("client warmup: %w", err)
+	ready := make(chan error, 1)
+	var once sync.Once
+
+	c.events.Subscribe(ctx,
+		func(e incus.InstanceEvent) {
+			action, got := instanceActions[e.Action]
+			if !got {
+				return
+			}
+
+			c.mu.Lock()
+			if e.Action == incus.EventInstanceRenamed {
+				delete(c.instanceMeta, instanceKey{project: e.Project, name: e.OldName})
+			} else {
+				delete(c.instanceMeta, instanceKey{project: e.Project, name: e.Name})
+			}
+			c.mu.Unlock()
+			if action == actionUpdate {
+				// c.mu has to be released so GetInstance can acquire the lock.
+				_, _ = c.GetInstance(ctx, e.Project, e.Name)
+			}
+		},
+		func() {
+			err := doWarmup(ctx, c)
+			if err != nil {
+				c.log.Debug("cache warmup on connect failed", zap.Error(err))
+			}
+			once.Do(func() { ready <- err })
+		},
+	)
+
+	select {
+	case err := <-ready:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
 	}
-
-	c.events.Subscribe(ctx, func(e incus.InstanceEvent) {
-		action, got := instanceActions[e.Action]
-		if !got {
-			return
-		}
-
-		c.mu.Lock()
-		if e.Action == incus.EventInstanceRenamed {
-			delete(c.instanceMeta, instanceKey{project: e.Project, name: e.OldName})
-		} else {
-			delete(c.instanceMeta, instanceKey{project: e.Project, name: e.Name})
-		}
-		c.mu.Unlock()
-		if action == actionUpdate {
-			// c.mu has to be released so GetInstance can acquire the lock.
-			_, _ = c.GetInstance(ctx, e.Project, e.Name)
-		}
-	})
-
-	return nil
 }
 
 func doWarmup(ctx context.Context, c *Cache) error {
@@ -160,6 +177,7 @@ func doWarmup(ctx context.Context, c *Cache) error {
 		return fmt.Errorf("cache warmup: %w", err)
 	}
 
+	c.instanceMeta = make(map[instanceKey]incus.InstanceInfo, len(instances))
 	for _, v := range instances {
 		c.instanceMeta[instanceKey{project: v.Project, name: v.Name}] = v
 	}

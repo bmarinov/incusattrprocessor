@@ -23,8 +23,12 @@ type Client struct {
 	srv       atomic.Pointer[conn]
 	connect   connectFunc
 	connectMu sync.Mutex
+
+	// reconnectSignal is written to upon successful event subscriber reconnect.
+	reconnectSignal chan struct{}
 	// done is closed on processor context cancel.
-	done            <-chan struct{}
+	done <-chan struct{}
+
 	log             *zap.Logger
 	reconnectPolicy retryPolicy
 }
@@ -57,7 +61,8 @@ func New(socketPath string,
 			}
 			return conn, nil
 		},
-		log: logger,
+		reconnectSignal: make(chan struct{}, 1),
+		log:             logger,
 		reconnectPolicy: retryPolicy{
 			attempts: retryAttempts,
 			delay:    retryDelay,
@@ -128,8 +133,24 @@ func (c *Client) GetAllInstances(ctx context.Context) ([]InstanceInfo, error) {
 }
 
 // Subscribe implements [metadata.InstanceEvents].
-func (c *Client) Subscribe(ctx context.Context, callback func(e InstanceEvent)) {
+func (c *Client) Subscribe(ctx context.Context,
+	callback func(e InstanceEvent),
+	onConnect func(),
+) {
 	go c.subscribeLoop(ctx, callback)
+
+	if onConnect != nil {
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-c.reconnectSignal:
+					onConnect()
+				}
+			}
+		}()
+	}
 }
 
 // subscribeLoop ensures that the connection for the event subscription is live.
@@ -157,6 +178,11 @@ func (c *Client) handleLifecycleEvents(ctx context.Context, callback func(e Inst
 	listen, err := c.srv.Load().srv.GetEventsAllProjects()
 	if err != nil {
 		return fmt.Errorf("lifecycle event listener: %w", err)
+	}
+
+	select {
+	case c.reconnectSignal <- struct{}{}:
+	default:
 	}
 
 	// on disconnect:

@@ -232,6 +232,46 @@ func TestCache_GetInstance(t *testing.T) {
 	})
 }
 
+func TestCache_RebuildAfterReconnect(t *testing.T) {
+	warmupData := []incus.InstanceInfo{
+		{Name: "stale", Project: "p", Architecture: "amd64"},
+	}
+
+	events := &fakeEventSource{}
+	c := NewCache(
+		&fakeInstanceLookup{fetched: make(chan struct{}, 1)},
+		events,
+		func(ctx context.Context) ([]incus.InstanceInfo, error) { return warmupData, nil },
+		zap.NewNop(),
+	)
+	if err := c.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := c.GetInstance(t.Context(), "p", "stale")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Architecture != "amd64" {
+		t.Fatalf("expected stale instance in cache after initial warmup, got %+v", got)
+	}
+
+	// Swap data for next warmup:
+	warmupData = []incus.InstanceInfo{
+		{Name: "fresh", Project: "p", Architecture: "aarch64"},
+	}
+	events.SignalConnected()
+
+	stale, _ := c.GetInstance(t.Context(), "p", "stale")
+	if stale.Architecture != "" {
+		t.Errorf("stale entry not evicted after reconnect, got %+v", stale)
+	}
+	fresh, _ := c.GetInstance(t.Context(), "p", "fresh")
+	if fresh.Architecture != "aarch64" {
+		t.Errorf("fresh entry not in cache after reconnect, got %+v", fresh)
+	}
+}
+
 func TestCache_Startup(t *testing.T) {
 	seed := incus.InstanceInfo{
 		Name:         "blap",
@@ -300,11 +340,23 @@ func (f *fakeInstanceLookup) WaitFetch(t *testing.T) {
 
 type fakeEventSource struct {
 	subscriptions []func(incus.InstanceEvent)
+	onConnect     func()
 }
 
 // Subscribe implements [InstanceEvents].
-func (s *fakeEventSource) Subscribe(ctx context.Context, cb func(e incus.InstanceEvent)) {
+func (s *fakeEventSource) Subscribe(_ context.Context, cb func(e incus.InstanceEvent), onConnect func()) {
 	s.subscriptions = append(s.subscriptions, cb)
+	s.onConnect = onConnect
+	if onConnect != nil {
+		onConnect()
+	}
+}
+
+// SignalConnected simulates the incus.Client signalling on established connection.
+func (s *fakeEventSource) SignalConnected() {
+	if s.onConnect != nil {
+		s.onConnect()
+	}
 }
 
 func (s *fakeEventSource) Push(e incus.InstanceEvent) {
