@@ -24,8 +24,8 @@ type Client struct {
 	connect   connectFunc
 	connectMu sync.Mutex
 
-	// reconnectSignal is written to upon successful event subscriber reconnect.
-	reconnectSignal chan struct{}
+	// connected is written to whenever the event subscriber connects.
+	connected chan struct{}
 	// done is closed on processor context cancel.
 	done <-chan struct{}
 
@@ -61,8 +61,8 @@ func New(socketPath string,
 			}
 			return conn, nil
 		},
-		reconnectSignal: make(chan struct{}, 1),
-		log:             logger,
+		connected: make(chan struct{}, 1),
+		log:       logger,
 		reconnectPolicy: retryPolicy{
 			attempts: retryAttempts,
 			delay:    retryDelay,
@@ -145,7 +145,7 @@ func (c *Client) Subscribe(ctx context.Context,
 				select {
 				case <-ctx.Done():
 					return
-				case <-c.reconnectSignal:
+				case <-c.connected:
 					onConnect()
 				}
 			}
@@ -181,7 +181,7 @@ func (c *Client) handleLifecycleEvents(ctx context.Context, callback func(e Inst
 	}
 
 	select {
-	case c.reconnectSignal <- struct{}{}:
+	case c.connected <- struct{}{}:
 	default:
 	}
 
