@@ -180,12 +180,7 @@ func TestCache_GetInstance(t *testing.T) {
 				lookup.info.Location = "new-node"
 
 				events.Push(incus.InstanceEvent{Name: initial.Name, Project: initial.Project, Action: action})
-				lookup.WaitFetch(t)
-
-				result, err := c.GetInstance(t.Context(), initial.Project, initial.Name)
-				if err != nil {
-					t.Fatal(err)
-				}
+				result := waitFetched(t, c, initial.Project, initial.Name)
 				if result.Location != "new-node" {
 					t.Errorf("expected new Location after update, got %+v", result)
 				}
@@ -212,12 +207,7 @@ func TestCache_GetInstance(t *testing.T) {
 			Project: initial.Project,
 			Action:  incus.EventInstanceRenamed,
 		})
-		lookup.WaitFetch(t)
-
-		result, err := c.GetInstance(t.Context(), initial.Project, newName)
-		if err != nil {
-			t.Fatal(err)
-		}
+		result := waitFetched(t, c, initial.Project, newName)
 		if result.Architecture == "" {
 			t.Errorf("expected fully fetched entry for new name, got partial result: %+v", result)
 		}
@@ -230,6 +220,46 @@ func TestCache_GetInstance(t *testing.T) {
 			t.Errorf("expected empty entry for old name after rename, got %+v", old)
 		}
 	})
+}
+
+func TestCache_RebuildAfterReconnect(t *testing.T) {
+	warmupData := []incus.InstanceInfo{
+		{Name: "stale", Project: "p", Architecture: "amd64"},
+	}
+
+	events := &fakeEventSource{}
+	c := NewCache(
+		&fakeInstanceLookup{},
+		events,
+		func(ctx context.Context) ([]incus.InstanceInfo, error) { return warmupData, nil },
+		zap.NewNop(),
+	)
+	if err := c.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := c.GetInstance(t.Context(), "p", "stale")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Architecture != "amd64" {
+		t.Fatalf("expected stale instance in cache after initial warmup, got %+v", got)
+	}
+
+	// Swap data for next warmup:
+	warmupData = []incus.InstanceInfo{
+		{Name: "fresh", Project: "p", Architecture: "aarch64"},
+	}
+	events.SignalConnected()
+
+	stale, _ := c.GetInstance(t.Context(), "p", "stale")
+	if stale.Architecture != "" {
+		t.Errorf("stale entry not evicted after reconnect, got %+v", stale)
+	}
+	fresh, _ := c.GetInstance(t.Context(), "p", "fresh")
+	if fresh.Architecture != "aarch64" {
+		t.Errorf("fresh entry not in cache after reconnect, got %+v", fresh)
+	}
 }
 
 func TestCache_Startup(t *testing.T) {
@@ -260,7 +290,7 @@ func TestCache_Startup(t *testing.T) {
 }
 
 func setupCache(seed ...incus.InstanceInfo) (*Cache, *fakeInstanceLookup, *fakeEventSource) {
-	l := fakeInstanceLookup{fetched: make(chan struct{}, 1)}
+	l := fakeInstanceLookup{}
 	events := fakeEventSource{}
 	c := NewCache(
 		&l,
@@ -272,39 +302,58 @@ func setupCache(seed ...incus.InstanceInfo) (*Cache, *fakeInstanceLookup, *fakeE
 }
 
 type fakeInstanceLookup struct {
-	info    incus.InstanceInfo
-	err     error
-	fetched chan struct{}
+	info incus.InstanceInfo
+	err  error
 }
 
 func (f *fakeInstanceLookup) GetInstance(_ context.Context, project, name string) (incus.InstanceInfo, error) {
-	select {
-	case f.fetched <- struct{}{}:
-	default:
-	}
 	info := f.info
 	info.Name = name
 	info.Project = project
 	return info, f.err
 }
 
-// WaitFetch blocks until fresh instance info is fetched with GetInstance.
-func (f *fakeInstanceLookup) WaitFetch(t *testing.T) {
+// waitFetched polls GetInstance until the cache holds a fully-populated entry for project/name.
+// Calling GetInstance immediately from a test will race.
+func waitFetched(t *testing.T, c *Cache, project, name string) incus.InstanceInfo {
 	t.Helper()
-	select {
-	case <-f.fetched:
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for background instance fetch")
+	deadline := time.After(time.Second)
+	for {
+		result, err := c.GetInstance(t.Context(), project, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// assuming Location or Architecture are the signal here:
+		if result.Location != "" || result.Architecture != "" {
+			return result
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("background fetch for %s/%s not written to cache within 1s", project, name)
+		case <-time.After(time.Millisecond):
+		}
 	}
 }
 
 type fakeEventSource struct {
 	subscriptions []func(incus.InstanceEvent)
+	onConnect     func()
 }
 
 // Subscribe implements [InstanceEvents].
-func (s *fakeEventSource) Subscribe(ctx context.Context, cb func(e incus.InstanceEvent)) {
+func (s *fakeEventSource) Subscribe(_ context.Context, cb func(e incus.InstanceEvent), onConnect func()) {
 	s.subscriptions = append(s.subscriptions, cb)
+	s.onConnect = onConnect
+	if onConnect != nil {
+		onConnect()
+	}
+}
+
+// SignalConnected simulates the incus.Client signalling on established connection.
+func (s *fakeEventSource) SignalConnected() {
+	if s.onConnect != nil {
+		s.onConnect()
+	}
 }
 
 func (s *fakeEventSource) Push(e incus.InstanceEvent) {

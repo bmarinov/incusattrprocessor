@@ -157,7 +157,10 @@ var noStart = func(ctx context.Context) error { return nil }
 type noopEventSource struct {
 }
 
-func (n *noopEventSource) Subscribe(_ context.Context, _ func(e incus.InstanceEvent)) {
+func (n *noopEventSource) Subscribe(_ context.Context, _ func(e incus.InstanceEvent), onConn func()) {
+	if onConn != nil {
+		onConn()
+	}
 }
 
 var _ metadata.InstanceEvents = &noopEventSource{}

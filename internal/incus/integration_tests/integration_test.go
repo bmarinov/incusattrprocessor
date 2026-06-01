@@ -3,6 +3,8 @@ package integrationtests
 import (
 	"context"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -10,6 +12,10 @@ import (
 	incusclient "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
 	"go.uber.org/zap"
+)
+
+var (
+	vmSSHKey = filepath.Join(os.Getenv("HOME"), ".cache/incus-test-vm/id_ed25519")
 )
 
 func TestMain(m *testing.M) {
@@ -67,7 +73,8 @@ func TestClient_Subscribe(t *testing.T) {
 	eventsCh := make(chan incus.InstanceEvent, 10)
 	c.Subscribe(t.Context(), func(e incus.InstanceEvent) {
 		eventsCh <- e
-	})
+	}, func() {},
+	)
 
 	newInst := env.testInstance("foo-baz")
 
@@ -96,7 +103,7 @@ func TestClient_Subscribe_Stop(t *testing.T) {
 	eventsCh := make(chan incus.InstanceEvent, 10)
 	c.Subscribe(t.Context(), func(e incus.InstanceEvent) {
 		eventsCh <- e
-	})
+	}, func() {})
 
 	inst := env.testInstance("foo-stop")
 	env.stopInstance(inst.Name)
@@ -130,7 +137,7 @@ func TestClient_Subscribe_Rename(t *testing.T) {
 		if e.Action == incus.EventInstanceRenamed {
 			eventsCh <- e
 		}
-	})
+	}, func() {})
 
 	const newName = "new-foo"
 	env.renameInstance(instance.Name, newName)
@@ -151,6 +158,41 @@ func TestClient_Subscribe_Rename(t *testing.T) {
 	}
 }
 
+func TestClient_Subscribe_ReceiveAfterReconnect(t *testing.T) {
+	c, env := setup(t)
+	eventsCh := make(chan incus.InstanceEvent, 20)
+	reconnected := make(chan struct{}, 1)
+	c.Subscribe(t.Context(),
+		func(e incus.InstanceEvent) {
+			if e.Action == incus.EventInstanceStarted {
+				eventsCh <- e
+			}
+		},
+		func() { reconnected <- struct{}{} },
+	)
+
+	// verify
+	baseline := env.testInstance("reconnect-before")
+	waitEvent(t, eventsCh, baseline.Name, 5*time.Second)
+
+	socket := os.Getenv("INCUS_SOCKET")
+
+	// act
+	runOnVM(t, "sudo systemctl stop incus")
+	runOnVM(t, "sudo systemctl start incus")
+	waitIncusAPIReady(t, socket, 10*time.Second)
+
+	select {
+	case <-reconnected:
+	case <-time.After(10 * time.Second):
+		t.Fatal("onConnect not called after 10 sec")
+	}
+
+	// assert
+	after := env.testInstance("reconnect-after")
+	waitEvent(t, eventsCh, after.Name, 10*time.Second)
+}
+
 func setup(t *testing.T) (*incus.Client, *testEnv) {
 	t.Helper()
 	socket := os.Getenv("INCUS_SOCKET")
@@ -162,7 +204,11 @@ func setup(t *testing.T) (*incus.Client, *testEnv) {
 	if err != nil {
 		t.Fatalf("setup: connect: %v", err)
 	}
-	c := incus.New(socket, zap.NewNop(), 3, time.Second)
+	logger, err := zap.NewDevelopment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := incus.New(socket, logger, 3, time.Second)
 	if err := c.Start(t.Context()); err != nil {
 		t.Fatalf("client.Start(): %v", err)
 	}
@@ -261,4 +307,54 @@ func (e *testEnv) renameInstance(oldName, newName string) {
 		e.t.Fatalf("renameInstance %s to %s: wait: %v", oldName, newName, err)
 	}
 	e.t.Cleanup(func() { forceDelete(e.srv, newName) })
+}
+
+// waitEvent drains eventsCh until an event with the given name arrives or timeout fires.
+func waitEvent(t *testing.T, ch <-chan incus.InstanceEvent, name string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.After(timeout)
+	for {
+		select {
+		case e := <-ch:
+			if e.Name == name {
+				return
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for event for instance %q", name)
+		}
+	}
+}
+
+// waitIncusAPIReady polls until the Incus API responds (daemon up).
+func waitIncusAPIReady(t *testing.T, socket string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		_, err := incusclient.ConnectIncusUnixWithContext(context.Background(), socket, nil)
+		if err == nil {
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatalf("waiting for Incus API: not ready after %s", timeout)
+}
+
+// runOnVM runs a command on the Incus VM over SSH.
+func runOnVM(t *testing.T, cmd string) {
+	t.Helper()
+	if _, err := os.Stat(vmSSHKey); err != nil {
+		t.Fatalf("VM SSH key not found: cannot run command: %v", err)
+	}
+	out, err := exec.Command("ssh",
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "BatchMode=yes",
+		"-i", vmSSHKey,
+		"-p", "2299",
+		"ubuntu@127.0.0.1",
+		cmd,
+	).CombinedOutput()
+	if err != nil {
+		t.Fatalf("exec in vm: %q: %v\n%s", cmd, err, out)
+	}
 }
