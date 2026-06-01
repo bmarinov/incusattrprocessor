@@ -37,7 +37,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Install prerequisites
-        run: sudo apt-get install -y qemu-system-x86 genisoimage
+        run: sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils genisoimage
 
       - name: Enable KVM
         run: |
