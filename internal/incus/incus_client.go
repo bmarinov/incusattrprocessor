@@ -267,7 +267,9 @@ func SplitLabel(label string) (project, name string) {
 }
 
 func isUnreachable(err error) bool {
-	return errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, fs.ErrNotExist)
+	return errors.Is(err, syscall.ECONNREFUSED) ||
+		errors.Is(err, fs.ErrNotExist) ||
+		errors.Is(err, syscall.ECONNRESET)
 }
 
 func toInfo(i *api.Instance) InstanceInfo {
