@@ -2,6 +2,7 @@ package incus
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -49,7 +50,7 @@ func TestSubscribe_WebsocketRecoversWithoutConnSwap(t *testing.T) {
 
 	ptrBefore := c.srv.Load()
 
-	vmSSH(t, "sudo bash -c 'systemctl stop incus.socket 2>/dev/null; systemctl stop incus'")
+	vmSSH(t, "sudo systemctl stop incus")
 	vmSSH(t, "sudo systemctl start incus")
 	waitSocketReady(t, socket, 15*time.Second)
 
@@ -107,12 +108,12 @@ func TestGetAllInstances_RecoverAfterDaemonRestart(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		_ = exec.Command("ssh", append(sshArgs,
-			"sudo bash -c 'systemctl start incus.socket 2>/dev/null; systemctl start incus'",
+			"sudo systemctl start incus",
 		)...).Run()
 		waitSocketReady(t, socket, 20*time.Second)
 	})
 
-	vmSSH(t, "sudo bash -c 'systemctl stop incus.socket 2>/dev/null; systemctl stop incus'")
+	vmSSH(t, "sudo systemctl stop incus")
 	waitSocketDown(t, socket, 30*time.Second)
 
 	// Bring it back after a pause long enough for the reconnect attempt to fire
@@ -120,7 +121,7 @@ func TestGetAllInstances_RecoverAfterDaemonRestart(t *testing.T) {
 	go func() {
 		time.Sleep(time.Second)
 		_ = exec.Command("ssh", append(sshArgs,
-			"sudo bash -c 'systemctl start incus.socket 2>/dev/null; systemctl start incus'",
+			"sudo systemctl start incus",
 		)...).Run()
 	}()
 
@@ -153,19 +154,13 @@ func vmSSH(t *testing.T, cmd string) {
 	}
 }
 
-func waitSocketDown(t *testing.T, socket string, timeout time.Duration) {
+// waitSocketDown polls systemctl via SSH.
+func waitSocketDown(t *testing.T, _ string, timeout time.Duration) {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		_, err := incusclient.ConnectIncusUnixWithContext(ctx, socket, nil)
-		cancel()
-		if err != nil {
-			return
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-	t.Fatalf("Incus daemon still responsive after %s — did not stop", timeout)
+	vmSSH(t, fmt.Sprintf(
+		"timeout %.0f bash -c 'until ! systemctl is-active --quiet incus; do sleep 0.2; done'",
+		timeout.Seconds(),
+	))
 }
 
 func waitSocketReady(t *testing.T, socket string, timeout time.Duration) {

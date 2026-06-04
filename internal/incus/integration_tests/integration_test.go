@@ -2,6 +2,7 @@ package integrationtests
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -201,20 +202,13 @@ func waitIncusAPIReady(t *testing.T, socket string, timeout time.Duration) {
 	t.Fatalf("Incus API not ready after %s", timeout)
 }
 
-func waitSocketDown(t *testing.T, socket string, timeout time.Duration) {
+// waitSocketDown polls via SSH until systemctl reports incus is inactive.
+func waitSocketDown(t *testing.T, _ string, timeout time.Duration) {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		// Short per-attempt context so a hanging daemon doesn't consume the whole budget.
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		_, err := incusclient.ConnectIncusUnixWithContext(ctx, socket, nil)
-		cancel()
-		if err != nil {
-			return
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-	t.Fatalf("Incus daemon still responsive after %s — did not stop", timeout)
+	runOnVM(t, fmt.Sprintf(
+		"timeout %.0f bash -c 'until ! systemctl is-active --quiet incus; do sleep 0.2; done'",
+		timeout.Seconds(),
+	))
 }
 
 func runOnVM(t *testing.T, cmd string) {
