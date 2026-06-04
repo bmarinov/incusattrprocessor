@@ -42,14 +42,12 @@ func TestReconnect_ConcurrentCalls(t *testing.T) {
 	start := make(chan struct{})
 	var wg sync.WaitGroup
 	for range goroutines {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			<-start
 			if err := c.reconnect(staleConn); err != nil {
 				t.Errorf("reconnect: %v", err)
 			}
-		}()
+		})
 	}
 
 	close(start)

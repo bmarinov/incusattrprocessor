@@ -11,6 +11,7 @@ set -euo pipefail
 
 INCUS_SOCKET="${INCUS_SOCKET:-/tmp/incus-test.sock}"
 
+dir="$(cd "$(dirname "$0")/.." && pwd)"
 cache="${HOME}/.cache/incus-test-vm"
 # TODO: any smaller image eg for CI?
 image_url="https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
@@ -30,6 +31,19 @@ if [[ ! -f "${ssh_key}" ]]; then
 fi
 pub_key=$(cat "${ssh_key}.pub")
 
+# Generate a client key+cert for mTLS
+client_key="${cache}/client.key"
+client_cert="${cache}/client.crt"
+if [[ ! -f "${client_key}" || ! -f "${client_cert}" ]]; then
+  printf 'Generating Incus client certificate...\n' >&2
+  openssl req \
+    -newkey ec -pkeyopt ec_paramgen_curve:P-384 \
+    -nodes -keyout "${client_key}" \
+    -x509 -days 3650 \
+    -subj "/CN=incus-test-client" \
+    -out "${client_cert}" 2>/dev/null
+fi
+
 if [[ ! -f "${image_cache}" ]]; then
   printf 'Downloading VM image...\n' >&2
   curl -L --progress-bar -o "${image_cache}.tmp" "${image_url}"
@@ -40,6 +54,9 @@ disk="${run}/disk.qcow2"
 rm -f "${disk}"
 qemu-img create -f qcow2 -b "${image_cache}" -F qcow2 "${disk}" 10G >/dev/null
 
+preseed_b64=$(base64 -w0 < "${dir}/scripts/incus-init-preseed.yaml")
+client_cert_b64=$(base64 -w0 < "${client_cert}")
+
 # cloud-init
 cat > "${run}/user-data" <<EOF
 #cloud-config
@@ -47,9 +64,18 @@ ssh_authorized_keys:
   - ${pub_key}
 packages:
   - incus
+write_files:
+  - path: /tmp/incus-preseed.yaml
+    encoding: b64
+    content: ${preseed_b64}
+  - path: /tmp/incus-client.crt
+    encoding: b64
+    content: ${client_cert_b64}
 runcmd:
   - usermod -aG incus-admin ubuntu
-  - incus admin init --minimal
+  - incus admin init --preseed < /tmp/incus-preseed.yaml
+  - incus config trust add-certificate /tmp/incus-client.crt
+  - rm /tmp/incus-preseed.yaml /tmp/incus-client.crt
 EOF
 
 printf 'instance-id: incus-test\nlocal-hostname: incus-test\n' > "${run}/meta-data"
@@ -98,7 +124,7 @@ printf ' done\n' >&2
 rm -f "${INCUS_SOCKET}"
 ssh "${ssh_opts[@]}" \
     -L "${INCUS_SOCKET}:/var/lib/incus/unix.socket" \
-    ubuntu@127.0.0.1 sleep infinity &
+    ubuntu@127.0.0.1 sleep infinity </dev/null >/dev/null 2>/dev/null &
 printf '%s\n' "$!" > "${run}/ssh-fwd.pid"
 sleep 1
 

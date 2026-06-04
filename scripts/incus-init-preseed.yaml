@@ -1,0 +1,40 @@
+# Config for `incus admin init --preseed` on the integration test VM.
+# HTTPS listener enabled on port 8443.
+#
+# docs: https://linuxcontainers.org/incus/docs/main/howto/initialize/#non-interactive-configuration
+
+config:
+  core.https_address: '[::]:8443'
+
+networks:
+- name: incusbr0
+  type: bridge
+  config:
+    ipv4.address: auto
+    ipv4.nat: "true"
+    ipv6.address: auto
+    ipv6.nat: "true"
+  description: ""
+
+storage_pools:
+- name: default
+  driver: dir
+  config: {}
+  description: ""
+
+profiles:
+- name: default
+  config: {}
+  description: ""
+  devices:
+    eth0:
+      name: eth0
+      network: incusbr0
+      type: nic
+    root:
+      path: /
+      pool: default
+      type: disk
+
+projects: []
+cluster: null
