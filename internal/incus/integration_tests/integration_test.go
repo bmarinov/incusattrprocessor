@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/bmarinov/otelcol-processor-incus/internal/incus"
-	incusclient "github.com/lxc/incus/v6/client"
-	"github.com/lxc/incus/v6/shared/api"
+	incusclient "github.com/lxc/incus/v7/client"
+	"github.com/lxc/incus/v7/shared/api"
 	"go.uber.org/zap"
 )
 
