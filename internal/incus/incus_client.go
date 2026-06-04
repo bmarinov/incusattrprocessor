@@ -291,14 +291,14 @@ func withReconnect[T any](c *Client,
 
 		currentConn := c.srv.Load()
 		result, err := op(currentConn.srv)
-		if err != nil && isUnreachable(err) {
-			err = c.reconnect(currentConn)
-			if err != nil {
-				return result, fmt.Errorf("reconnecting: %w", err)
-			}
+		// if err != nil && isUnreachable(err) {
+		// 	err = c.reconnect(currentConn)
+		// 	if err != nil {
+		// 		return result, fmt.Errorf("reconnecting: %w", err)
+		// 	}
 
-			return op(c.srv.Load().srv)
-		}
+		// 	return op(c.srv.Load().srv)
+		// }
 		return result, err
 	},
 		isUnreachable,
