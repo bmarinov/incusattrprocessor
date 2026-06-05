@@ -1,0 +1,8 @@
+processors:
+  incusattr:
+    connection:
+      https:
+        url: https://incus.example.com:8443
+        client_cert: /etc/incus/client.crt
+        client_key: /etc/incus/client.key
+        server_cert: /etc/incus/server.crt
