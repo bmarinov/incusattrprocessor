@@ -1,8 +1,11 @@
 package incusattrprocessor
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/bmarinov/otelcol-processor-incus/internal/incus"
 	"go.opentelemetry.io/collector/confmap/confmaptest"
 )
 
@@ -53,16 +56,67 @@ func TestConfig(t *testing.T) {
 }
 
 func TestHTTPSConfig_load(t *testing.T) {
-	t.Run("missing cert file returns error", func(t *testing.T) {
+	const url = "https://incus.example.com:8443"
+
+	t.Run("all files present", func(t *testing.T) {
+		dir := t.TempDir()
+		cc := "foo-client-cert"
+		ck := "bar-client-key"
+		sc := "server-cert"
+
 		h := &httpsConfig{
-			URL:        "https://incus.example.com:8443",
-			ClientCert: "/nonexistent/client.crt",
-			ClientKey:  "/nonexistent/client.key",
-			ServerCert: "/nonexistent/server.crt",
+			URL:        url,
+			ClientCert: writeTempFile(t, dir, "client.crt", cc),
+			ClientKey:  writeTempFile(t, dir, "client.key", ck),
+			ServerCert: writeTempFile(t, dir, "server.crt", sc),
 		}
-		_, err := h.load()
-		if err == nil {
-			t.Error("expected error for missing cert files")
+		got, err := h.load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		expected := incus.HTTPSConfig{
+			URL:        url,
+			ClientCert: cc,
+			ClientKey:  ck,
+			ServerCert: sc,
+		}
+		if got != expected {
+			t.Errorf("expected %+v, got %+v", expected, got)
 		}
 	})
+
+	dir := t.TempDir()
+	clientCert := writeTempFile(t, dir, "client.crt", "foo")
+	clientKey := writeTempFile(t, dir, "client.key", "bar")
+	serverCert := writeTempFile(t, dir, "server.crt", "baz")
+	missing := filepath.Join(dir, "missing.pem")
+
+	tests := []struct {
+		name       string
+		clientCert string
+		clientKey  string
+		serverCert string
+	}{
+		{"client cert missing", missing, clientKey, serverCert},
+		{"client key missing", clientCert, missing, serverCert},
+		{"server cert missing", clientCert, clientKey, missing},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h := &httpsConfig{URL: url, ClientCert: tc.clientCert, ClientKey: tc.clientKey, ServerCert: tc.serverCert}
+			_, err := h.load()
+			if err == nil {
+				t.Error("expected error for missing file")
+			}
+		})
+	}
+}
+
+func writeTempFile(t *testing.T, dir, name, content string) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
