@@ -15,6 +15,11 @@ The processor is in early preview/alpha. OTEL profiles are in alpha.
 
 Note: run collector with `--feature-gates=service.profilesSupport` to enable profiling.
 
+## Prerequisites
+- Host running Incus with LXC containers
+- [opentelemetry-ebpf-profiler](https://github.com/open-telemetry/opentelemetry-ebpf-profiler) to collect samples upstream
+- Supported [Linux kernel](https://github.com/open-telemetry/opentelemetry-ebpf-profiler#supported-linux-kernel-version) version for the eBPF profiler
+
 ## Configuration
 
 Currently only the Incus connection can be configured. Unix socket and HTTPS are mutually exclusive. Configure exactly one of `connection.socket_path` and `connection.https`.
@@ -41,9 +46,6 @@ processors:
         server_cert: /etc/incus/server.crt
 ```
 
-## Prerequisites
-- Host running Incus with LXC containers
-- Supported [Linux kernel](https://github.com/open-telemetry/opentelemetry-ebpf-profiler#supported-linux-kernel-version) version for the upstream epbf profiler.
 
 ## Build
 
