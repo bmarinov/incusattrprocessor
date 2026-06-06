@@ -4,7 +4,7 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/.." && pwd)"
 
-collector_version="0.151.0"
+collector_version="0.153.0"
 ocb_module="go.opentelemetry.io/collector/cmd/builder"
 ocb_bin="${repo_root}/bin/ocb"
 manifest="${repo_root}/otelcol-builder.yaml"
