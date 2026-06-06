@@ -6,6 +6,7 @@
 !*.sh
 !*.yaml
 !scripts/
+!scripts/known-vulns.txt
 !.vscode/
 
 # dist/build output:

@@ -17,7 +17,9 @@ Note: run collector with `--feature-gates=service.profilesSupport` to enable pro
 
 ## Configuration
 
-Currently only the Incus socket path can be configured.
+Currently only the Incus connection can be configured. Unix socket and HTTPS are mutually exclusive. Configure exactly one of `connection.socket_path` and `connection.https`.
+
+By default the client assumes the collector has permissions to access the unix socket on the Incus host.
 
 Effective default configuration:
 ```yaml
@@ -25,6 +27,18 @@ processors:
   incusattr:
     connection:
       socket_path: /var/lib/incus/unix.socket
+```
+
+Connect over HTTPS with TLS certs:
+```yaml
+processors:
+  incusattr:
+    connection:
+      https:
+        url: https://incus.local:8443
+        client_cert: /etc/incus/client.crt
+        client_key: /etc/incus/client.key
+        server_cert: /etc/incus/server.crt
 ```
 
 ## Prerequisites
@@ -63,9 +77,14 @@ The cgroup probe test needs a live LXC host to run.
 
 Running `./scripts/test-integration.sh` will set up a VM with Incus and run all tests, including the client integration suite.
 
-The tests require `INCUS_SOCKET` to be set.
+The tests require `INCUS_SOCKET` to be set.  
+The HTTPS client tests also require the following env vars:
+- `INCUS_HTTPS_URL`
+- `INCUS_HTTPS_CLIENT_CERT`
+- `INCUS_HTTPS_CLIENT_KEY`
+- `INCUS_HTTPS_SERVER_CERT`
 
-To run and debug the tests:
+To run and debug the tests in VSCode:
 `settings.json`:
 ```json
 {
@@ -80,7 +99,10 @@ The tests at `./internal/incus/integration_tests/` can now be executed. The VM m
 # start the VM
 ./scripts/start-incus-vm.sh
 
-# run / debug integration tests
+# optional (HTTPS tests) - set env vars according to script output:
+# ./scripts/setup-incus-https.sh
+
+# run / debug integration tests in VS Code
 
 # clean up
 ./scripts/stop-incus-vm.sh

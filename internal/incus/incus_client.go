@@ -48,19 +48,53 @@ type InstanceInfo struct {
 	// TODO: cpu limits
 }
 
+// HTTPSConfig holds TLS credentials for the connection to an Incus daemon.
+type HTTPSConfig struct {
+	URL string
+
+	// PEM-encoded certificates and key:
+
+	ClientCert string
+	ClientKey  string
+	ServerCert string
+}
+
 func New(socketPath string,
 	logger *zap.Logger,
 	retryAttempts int,
 	retryDelay time.Duration,
 ) *Client {
+	return newClient(func(ctx context.Context) (incusclient.InstanceServer, error) {
+		srv, err := incusclient.ConnectIncusUnixWithContext(ctx, socketPath, nil)
+		if err != nil {
+			return nil, fmt.Errorf("connecting to incus daemon: %w", err)
+		}
+		return srv, nil
+	}, logger, retryAttempts, retryDelay)
+}
+
+func NewHTTPS(cfg HTTPSConfig,
+	logger *zap.Logger,
+	retryAttempts int,
+	retryDelay time.Duration,
+) *Client {
+	args := &incusclient.ConnectionArgs{
+		TLSClientCert: cfg.ClientCert,
+		TLSClientKey:  cfg.ClientKey,
+		TLSServerCert: cfg.ServerCert,
+	}
+	return newClient(func(ctx context.Context) (incusclient.InstanceServer, error) {
+		srv, err := incusclient.ConnectIncusWithContext(ctx, cfg.URL, args)
+		if err != nil {
+			return nil, fmt.Errorf("connecting to incus daemon via HTTPS: %w", err)
+		}
+		return srv, nil
+	}, logger, retryAttempts, retryDelay)
+}
+
+func newClient(connect connectFunc, logger *zap.Logger, retryAttempts int, retryDelay time.Duration) *Client {
 	return &Client{
-		connect: func(ctx context.Context) (incusclient.InstanceServer, error) {
-			conn, err := incusclient.ConnectIncusUnixWithContext(ctx, socketPath, nil)
-			if err != nil {
-				return nil, fmt.Errorf("connecting to incus daemon: %w", err)
-			}
-			return conn, nil
-		},
+		connect:   connect,
 		connected: make(chan struct{}, 1),
 		log:       logger,
 		reconnectPolicy: retryPolicy{
@@ -233,7 +267,9 @@ func SplitLabel(label string) (project, name string) {
 }
 
 func isUnreachable(err error) bool {
-	return errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, fs.ErrNotExist)
+	return errors.Is(err, syscall.ECONNREFUSED) ||
+		errors.Is(err, fs.ErrNotExist) ||
+		errors.Is(err, syscall.ECONNRESET)
 }
 
 func toInfo(i *api.Instance) InstanceInfo {
@@ -257,14 +293,16 @@ func withReconnect[T any](c *Client,
 
 		currentConn := c.srv.Load()
 		result, err := op(currentConn.srv)
-		if err != nil && isUnreachable(err) {
-			err = c.reconnect(currentConn)
-			if err != nil {
-				return result, fmt.Errorf("reconnecting: %w", err)
-			}
 
-			return op(c.srv.Load().srv)
-		}
+		// TODO: swapping the InstanceServer is not necessary, will be removed:
+		// if err != nil && isUnreachable(err) {
+		// 	err = c.reconnect(currentConn)
+		// 	if err != nil {
+		// 		return result, fmt.Errorf("reconnecting: %w", err)
+		// 	}
+
+		// 	return op(c.srv.Load().srv)
+		// }
 		return result, err
 	},
 		isUnreachable,

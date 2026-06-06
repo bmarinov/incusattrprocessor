@@ -12,6 +12,7 @@ kill_pid() {
   rm -f "${file}"
 }
 
+kill_pid "${run}/https-fwd.pid"
 kill_pid "${run}/ssh-fwd.pid"
 kill_pid "${run}/qemu.pid"
 rm -f "${INCUS_SOCKET}"

@@ -2,6 +2,7 @@ package incusattrprocessor
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/bmarinov/otelcol-processor-incus/internal/incus"
@@ -35,10 +36,17 @@ func createProfilesProcessor(
 ) (xprocessor.Profiles, error) {
 	pConfig := cfg.(*processorConfig)
 
-	incusClient := incus.New(pConfig.Connection.SocketPath,
-		params.Logger,
-		3, time.Second,
-	)
+	var incusClient *incus.Client
+	if pConfig.Connection.HTTPS != nil {
+		httpsCfg, err := pConfig.Connection.HTTPS.load()
+		if err != nil {
+			return nil, fmt.Errorf("loading HTTPS config: %w", err)
+		}
+		incusClient = incus.NewHTTPS(httpsCfg, params.Logger, 3, time.Second)
+	} else {
+		incusClient = incus.New(pConfig.Connection.SocketPath, params.Logger, 3, time.Second)
+	}
+
 	cache := metadata.NewCache(
 		incusClient,
 		incusClient,
