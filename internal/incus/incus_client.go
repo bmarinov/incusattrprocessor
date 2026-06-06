@@ -293,6 +293,8 @@ func withReconnect[T any](c *Client,
 
 		currentConn := c.srv.Load()
 		result, err := op(currentConn.srv)
+
+		// TODO: swapping the InstanceServer is not necessary, will be removed:
 		// if err != nil && isUnreachable(err) {
 		// 	err = c.reconnect(currentConn)
 		// 	if err != nil {
