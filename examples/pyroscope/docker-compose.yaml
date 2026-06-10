@@ -1,0 +1,30 @@
+services:
+  pyroscope:
+    image: grafana/pyroscope:latest
+    ports:
+      - "4040:4040"   # HTTP UI + OTLP ingestion
+    volumes:
+      - pyroscope-data:/data
+      - ./pyroscope.yaml:/etc/pyroscope/config.yaml
+    command: ["-config.file=/etc/pyroscope/config.yaml"]
+    restart: unless-stopped
+
+  grafana:
+    profiles: [grafana]
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - pyroscope
+    restart: unless-stopped
+
+volumes:
+  pyroscope-data:
+  grafana-data:
