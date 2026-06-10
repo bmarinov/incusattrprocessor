@@ -1,0 +1,40 @@
+receivers:
+  profiling:
+    samples_per_second: 99
+
+processors:
+  incusattr:
+    connection:
+      socket_path: /var/lib/incus/unix.socket
+
+  # Pyroscope stores OTLP attributes as label names and does NOT dedot. 
+  # Attrs like "incus.instance.name" are not valid Prometheus labels.
+  # Manually remap to underscores:
+  resource:
+    attributes:
+      - key: incus_instance_name
+        from_attribute: incus.instance.name
+        action: insert
+      - key: incus_instance_project
+        from_attribute: incus.instance.project
+        action: insert
+      - key: incus_instance_location
+        from_attribute: incus.instance.location
+        action: insert
+
+exporters:
+  debug:
+    verbosity: basic
+  otlphttp/pyroscope:
+    profiles_endpoint: http://localhost:4040/v1development/profiles
+
+service:
+  telemetry:
+    logs:
+      level: info
+
+  pipelines:
+    profiles:
+      receivers: [profiling]
+      processors: [incusattr, resource]
+      exporters: [debug, otlphttp/pyroscope]

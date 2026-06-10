@@ -1,0 +1,13 @@
+target: all
+
+server:
+  http_listen_port: 4040
+  # Internal grpc clients (raft, metastore, ring) send keepalive pings.
+  # This is causing /ready false in single-binary mode.
+  grpc_server_ping_without_stream_allowed: true
+  grpc_server_min_time_between_pings: 10s
+
+storage:
+  backend: filesystem
+  filesystem:
+    dir: /data
