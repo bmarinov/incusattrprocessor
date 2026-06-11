@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"io/fs"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -19,23 +17,14 @@ import (
 
 // Client looks up Incus instance metadata via the local Unix socket.
 type Client struct {
-	// pointer to the connection with the Incus daemon
-	srv       atomic.Pointer[conn]
-	connect   connectFunc
-	connectMu sync.Mutex
+	srv     incusclient.InstanceServer
+	connect connectFunc
 
 	// connected is written to whenever the event subscriber connects.
 	connected chan struct{}
-	// done is closed on processor context cancel.
-	done <-chan struct{}
 
-	log             *zap.Logger
-	reconnectPolicy retryPolicy
-}
-
-// conn wraps the InstanceServer for the atomic swap.
-type conn struct {
-	srv incusclient.InstanceServer
+	log         *zap.Logger
+	retryPolicy retryPolicy
 }
 
 type connectFunc func(ctx context.Context) (incusclient.InstanceServer, error)
@@ -97,7 +86,7 @@ func newClient(connect connectFunc, logger *zap.Logger, retryAttempts int, retry
 		connect:   connect,
 		connected: make(chan struct{}, 1),
 		log:       logger,
-		reconnectPolicy: retryPolicy{
+		retryPolicy: retryPolicy{
 			attempts: retryAttempts,
 			delay:    retryDelay,
 		},
@@ -105,17 +94,16 @@ func newClient(connect connectFunc, logger *zap.Logger, retryAttempts int, retry
 }
 
 func (c *Client) Start(ctx context.Context) error {
-	c.done = ctx.Done()
-
 	for {
-		srvConn, err := retry(ctx,
-			c.reconnectPolicy,
+		srvConn, err := retry(
+			ctx,
+			c.retryPolicy,
 			func() (result incusclient.InstanceServer, err error) {
 				return c.connect(ctx)
 			}, isUnreachable)
 
 		if err == nil {
-			c.srv.Store(&conn{srvConn})
+			c.srv = srvConn
 			return nil
 		}
 		if !isUnreachable(err) {
@@ -202,14 +190,15 @@ func (c *Client) subscribeLoop(ctx context.Context, callback func(e InstanceEven
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(c.reconnectPolicy.delay):
+		case <-time.After(c.retryPolicy.delay):
 		}
 	}
 }
 
 func (c *Client) handleLifecycleEvents(ctx context.Context, callback func(e InstanceEvent)) error {
 	// TODO: register handlers separately and only add subscribers here.
-	listen, err := c.srv.Load().srv.GetEventsAllProjects()
+
+	listen, err := c.srv.GetEventsAllProjects()
 	if err != nil {
 		return fmt.Errorf("lifecycle event listener: %w", err)
 	}
@@ -289,51 +278,7 @@ func contextString(ctx map[string]any, key string) string {
 func withReconnect[T any](c *Client,
 	ctx context.Context,
 	op func(incusclient.InstanceServer) (T, error)) (T, error) {
-	return retry(ctx, c.reconnectPolicy, func() (T, error) {
-
-		currentConn := c.srv.Load()
-		result, err := op(currentConn.srv)
-
-		// TODO: swapping the InstanceServer is not necessary, will be removed:
-		// if err != nil && isUnreachable(err) {
-		// 	err = c.reconnect(currentConn)
-		// 	if err != nil {
-		// 		return result, fmt.Errorf("reconnecting: %w", err)
-		// 	}
-
-		// 	return op(c.srv.Load().srv)
-		// }
-		return result, err
-	},
-		isUnreachable,
-	)
-}
-
-// reconnect attempts to connect and swaps the underlying server connection.
-func (c *Client) reconnect(current *conn) error {
-	c.connectMu.Lock()
-	defer c.connectMu.Unlock()
-
-	if c.srv.Load() != current {
-		// already reconnected
-		return nil
-	}
-
-	connectCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() {
-		select {
-		case <-c.done:
-			cancel()
-		case <-connectCtx.Done():
-		}
-	}()
-
-	srv, err := c.connect(connectCtx)
-	if err != nil {
-		return err
-	}
-
-	c.srv.Store(&conn{srv: srv})
-	return nil
+	return retry(ctx, c.retryPolicy, func() (T, error) {
+		return op(c.srv)
+	}, isUnreachable)
 }
