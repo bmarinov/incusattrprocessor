@@ -8,6 +8,7 @@
 !scripts/
 !scripts/known-vulns.txt
 !.vscode/
+!LICENSE
 
 # dist/build output:
 _build

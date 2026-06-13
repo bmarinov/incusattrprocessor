@@ -133,3 +133,7 @@ ssh user@host sudo ~/dev/otelcol-incus/otelcol-incus-ebpf-profiler \
   --config=~/dev/otelcol-incus/debug-collector.yaml \
   --feature-gates=service.profilesSupport
 ```
+
+## License
+
+[Apache License 2.0](./LICENSE).
