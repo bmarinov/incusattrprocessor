@@ -23,7 +23,7 @@ install_ocb() {
         echo "found outdated ocb version ${installed_version}"
     fi
     echo "Installing ocb v${collector_version}..."
-    GOBIN="${repo_root}/bin" go install "${ocb_module}@v${collector_version}"
+    GOBIN="${repo_root}/bin" GOARCH="" GOOS="" go install "${ocb_module}@v${collector_version}"
     mv "${repo_root}/bin/builder" "${ocb_bin}"
 }
 
