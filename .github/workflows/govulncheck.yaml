@@ -13,10 +13,16 @@ jobs:
         with:
           persist-credentials: false
 
+      # Scan with the latest patch of the Go line we ship, not the go.mod floor.
+      # The `go` directive is a minimum language version; the binary is built with
+      # whatever patch the build toolchain resolves (GOTOOLCHAIN=auto). Pinning the
+      # floor makes govulncheck flag stdlib vulns already fixed in the patch we
+      # build with, i.e. false positives. Bump '1.26' when go.mod moves a minor.
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version: "1.26"
+          check-latest: true
 
       - name: Run govulncheck
         run: |
