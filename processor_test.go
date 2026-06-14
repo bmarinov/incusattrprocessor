@@ -5,10 +5,12 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/bmarinov/otelcol-processor-incus/internal/incus"
 	"github.com/bmarinov/otelcol-processor-incus/internal/metadata"
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/component/componenttest"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pprofile"
 	"go.opentelemetry.io/collector/processor"
@@ -123,6 +125,76 @@ func TestIncusAttrProcessor_processProfiles(t *testing.T) {
 		attrs := got.ResourceProfiles().At(0).Resource().Attributes()
 		if _, ok := attrs.Get(attrInstanceName); ok {
 			t.Errorf("expected no %s attribute when pid attribute is absent", attrInstanceName)
+		}
+	})
+}
+
+func TestIncusAttrProcessor_startup(t *testing.T) {
+	t.Run("startup returns without waiting for incus", func(t *testing.T) {
+		started := make(chan struct{})
+		blockingStart := func(ctx context.Context) error {
+			close(started)
+			<-ctx.Done()
+			return ctx.Err()
+		}
+		p := newIncusAttrProcessor(nopSettings(), &processorConfig{}, nil, blockingStart)
+
+		done := make(chan error, 1)
+		go func() { done <- p.startup(context.Background(), componenttest.NewNopHost()) }()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("expected nil, got %v", err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("startup blocked; expected non-blocking return")
+		}
+		<-started
+		_ = p.shutdown(context.Background())
+	})
+}
+
+func TestProcessProfiles_resourceAttributes(t *testing.T) {
+	t.Run("cache returns empty Location", func(t *testing.T) {
+		procRoot := t.TempDir()
+		writeCgroup(t, procRoot, "1122", "0::/lxc.payload.bazz\n")
+		seed := incus.InstanceInfo{Name: "bazz", Project: "default", Location: ""}
+		cacheLookup := metadata.NewCache(nil, &noopEventSource{}, warmupWith(seed), zap.NewNop())
+		_ = cacheLookup.Start(t.Context())
+		src := metadata.NewSource(cacheLookup, procRoot)
+		p := newIncusAttrProcessor(nopSettings(), &processorConfig{}, src, noStart)
+
+		pd, _ := newProfilesWithPID(1122)
+		got, err := p.processProfiles(context.Background(), pd)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		attrs := got.ResourceProfiles().At(0).Resource().Attributes()
+		if v, ok := attrs.Get(attrInstanceLocation); ok {
+			t.Errorf("set %s=%q from an empty cache value; empty values must be skipped",
+				attrInstanceLocation, v.Str())
+		}
+	})
+
+	t.Run("incus.instance.name already set upstream", func(t *testing.T) {
+		procRoot := t.TempDir()
+		writeCgroup(t, procRoot, "1122", "0::/lxc.payload.bar\n")
+		seed := incus.InstanceInfo{Name: "bar", Project: "default", Location: "node-0"}
+		cacheLookup := metadata.NewCache(nil, &noopEventSource{}, warmupWith(seed), zap.NewNop())
+		_ = cacheLookup.Start(t.Context())
+		src := metadata.NewSource(cacheLookup, procRoot)
+		p := newIncusAttrProcessor(nopSettings(), &processorConfig{}, src, noStart)
+
+		pd, rp := newProfilesWithPID(1122)
+		rp.Resource().Attributes().PutStr(attrInstanceName, "preset")
+		got, err := p.processProfiles(context.Background(), pd)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		attrs := got.ResourceProfiles().At(0).Resource().Attributes()
+		if v, _ := attrs.Get(attrInstanceName); v.Str() != "preset" {
+			t.Errorf("overwrote %s with cache value %q; processor must be additive and preserve upstream values",
+				attrInstanceName, v.Str())
 		}
 	})
 }

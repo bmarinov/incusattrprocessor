@@ -7,6 +7,7 @@ import (
 	"github.com/bmarinov/otelcol-processor-incus/internal/cgroup"
 	"github.com/bmarinov/otelcol-processor-incus/internal/incus"
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pprofile"
 	"go.opentelemetry.io/collector/processor"
 	"go.uber.org/zap"
@@ -69,9 +70,9 @@ func (p *incusAttrProcessor) processProfiles(ctx context.Context, pd pprofile.Pr
 
 		p.logger.Debug("matched container", zap.String("pid", pid), zap.String("container", meta.Name))
 
-		attrs.PutStr(attrInstanceName, meta.Name)
-		attrs.PutStr(attrInstanceProject, meta.Project)
-		attrs.PutStr(attrInstanceLocation, meta.Location)
+		setResourceAttr(attrs, attrInstanceName, meta.Name)
+		setResourceAttr(attrs, attrInstanceProject, meta.Project)
+		setResourceAttr(attrs, attrInstanceLocation, meta.Location)
 	}
 	if total > 0 {
 		p.logger.Debug("batch", zap.Int("matched", matched), zap.Int("total", total))
@@ -79,21 +80,25 @@ func (p *incusAttrProcessor) processProfiles(ctx context.Context, pd pprofile.Pr
 	return pd, nil
 }
 
+func setResourceAttr(attrs pcommon.Map, key, val string) {
+	if val == "" {
+		return
+	}
+	if _, ok := attrs.Get(key); ok {
+		return
+	}
+	attrs.PutStr(key, val)
+}
+
 func (p *incusAttrProcessor) startup(ctx context.Context, _ component.Host) error {
-	ctx, cancel := context.WithCancel(ctx)
+	background, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	p.cancel = cancel
 
-	err := p.start(ctx)
-	if err != nil {
-		return err
-	}
-
-	socket := p.config.Connection.SocketPath
-	if socket == "" {
-		socket = "/var/lib/incus/unix.socket (default)"
-	}
-	p.logger.Info("connected to incus daemon", zap.String("socket", socket))
-
+	go func() {
+		if err := p.start(background); err != nil {
+			p.logger.Warn("incus processor startup", zap.Error(err))
+		}
+	}()
 	return nil
 }
 
