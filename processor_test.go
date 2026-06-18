@@ -17,7 +17,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func writeCgroup(t *testing.T, procRoot, pid, content string) {
+func writeCgroup(t testing.TB, procRoot, pid, content string) {
 	t.Helper()
 	dir := filepath.Join(procRoot, pid)
 	if err := os.MkdirAll(dir, 0o755); err != nil {

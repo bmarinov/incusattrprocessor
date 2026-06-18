@@ -2,6 +2,7 @@
 !*/
 !.gitignore
 !*.go
+!*.md
 !**/testdata/**
 !*.sh
 !*.yaml
