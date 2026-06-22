@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bmarinov/otelcol-processor-incus/internal/incus"
+	"github.com/bmarinov/incusattrprocessor/internal/incus"
 )
 
 func TestHTTPS_GetAllInstances(t *testing.T) {

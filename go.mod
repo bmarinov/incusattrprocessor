@@ -1,4 +1,4 @@
-module github.com/bmarinov/otelcol-processor-incus
+module github.com/bmarinov/incusattrprocessor
 
 go 1.26.2
 
