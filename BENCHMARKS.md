@@ -5,7 +5,7 @@ Linux 7.0.10-201.fc44.x86_64 / go version go1.26.3 linux/amd64
 ```
 goos: linux
 goarch: amd64
-pkg: github.com/bmarinov/otelcol-processor-incus
+pkg: github.com/bmarinov/incusattrprocessor
 cpu: AMD Ryzen 7 7840U w/ Radeon  780M Graphics     
                                                  │  bench.out  │
                                                  │   sec/op    │
@@ -63,7 +63,7 @@ ProcessProfiles/page-cached/100/mixed-50-16         901.0 ± 0%
 ProcessProfiles/page-cached/100/all-host-16        1.001k ± 0%
 geomean                                             120.5
 
-pkg: github.com/bmarinov/otelcol-processor-incus/internal/cgroup
+pkg: github.com/bmarinov/incusattrprocessor/internal/cgroup
                   │  bench.out  │
                   │   sec/op    │
 Read/proc-self-16   8.396µ ± 1%
@@ -87,7 +87,7 @@ ParseLXC-16         0.000 ± 0%
 geomean                        ¹
 ¹ summaries must be >0 to compute geomean
 
-pkg: github.com/bmarinov/otelcol-processor-incus/internal/metadata
+pkg: github.com/bmarinov/incusattrprocessor/internal/metadata
                                       │  bench.out  │
                                       │   sec/op    │
 CacheGetInstance/warm_hit-16            27.03n ± 2%

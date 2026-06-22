@@ -5,17 +5,17 @@
 # github.com/lxc/incus - privilege escalation via custom storage volumes, false-positive
 # Fixed in incus >=6.19.
 # https://pkg.go.dev/vuln/GO-2025-4115
-# https://github.com/bmarinov/otelcol-processor-incusattr/issues/12
+# https://github.com/bmarinov/incusattrprocessor/issues/12
 GO-2025-4115
 
 # github.com/lxc/incus - container image templating arbitrary host file read/write, false-positive
 # Fixed in incus >=6.21.
 # https://pkg.go.dev/vuln/GO-2026-4357
-# https://github.com/bmarinov/otelcol-processor-incusattr/issues/12
+# https://github.com/bmarinov/incusattrprocessor/issues/12
 GO-2026-4357
 
 # github.com/lxc/incus - container environment config newline injection, false-positive
 # Fixed in incus >=6.21.
 # https://pkg.go.dev/vuln/GO-2026-4359
-# https://github.com/bmarinov/otelcol-processor-incusattr/issues/12
+# https://github.com/bmarinov/incusattrprocessor/issues/12
 GO-2026-4359

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/bmarinov/otelcol-processor-incus/internal/incus"
-	"github.com/bmarinov/otelcol-processor-incus/internal/metadata"
+	"github.com/bmarinov/incusattrprocessor/internal/incus"
+	"github.com/bmarinov/incusattrprocessor/internal/metadata"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/consumer/xconsumer"

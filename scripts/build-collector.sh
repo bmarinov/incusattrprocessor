@@ -35,12 +35,6 @@ CGO_ENABLED=0 "${ocb_bin}" \
     --skip-get-modules=false \
     --skip-compilation=true
 
-# ocb guesses an invalid  package name:
-sed -i \
-    -e 's|otelcol-processor-incus "github\.com/bmarinov/otelcol-processor-incus"|incusattrprocessor "github.com/bmarinov/otelcol-processor-incus"|g' \
-    -e 's|otelcol-processor-incus\.NewFactory|incusattrprocessor.NewFactory|g' \
-    "${build_dir}/components.go"
-
 (cd "${build_dir}" && go mod tidy)
 
 echo "compiling ${GOOS}/${GOARCH}..."

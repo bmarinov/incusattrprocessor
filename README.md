@@ -1,4 +1,4 @@
-# otelcol-processor-incusattr
+# incusattrprocessor
 
 OTEL profiles processor for [Incus](https://linuxcontainers.org/incus/) container metadata.
 
@@ -73,6 +73,8 @@ go vet ./...
 ```
 
 The cgroup probe test needs a live LXC host to run.
+
+Benchmark results are in [BENCHMARKS.md](./BENCHMARKS.md); regenerate with `scripts/bench.sh`.
 
 
 ### Integration tests

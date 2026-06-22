@@ -6,8 +6,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/bmarinov/otelcol-processor-incus/internal/incus"
-	"github.com/bmarinov/otelcol-processor-incus/internal/metadata"
+	"github.com/bmarinov/incusattrprocessor/internal/incus"
+	"github.com/bmarinov/incusattrprocessor/internal/metadata"
 	"go.opentelemetry.io/collector/pdata/pprofile"
 	"go.uber.org/zap"
 )

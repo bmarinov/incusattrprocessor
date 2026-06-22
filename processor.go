@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/bmarinov/otelcol-processor-incus/internal/cgroup"
-	"github.com/bmarinov/otelcol-processor-incus/internal/incus"
+	"github.com/bmarinov/incusattrprocessor/internal/cgroup"
+	"github.com/bmarinov/incusattrprocessor/internal/incus"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pprofile"

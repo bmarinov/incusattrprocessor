@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bmarinov/otelcol-processor-incus/internal/incus"
+	"github.com/bmarinov/incusattrprocessor/internal/incus"
 	incusclient "github.com/lxc/incus/v6/client"
 	"github.com/lxc/incus/v6/shared/api"
 	"go.uber.org/zap"
