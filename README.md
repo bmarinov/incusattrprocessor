@@ -47,6 +47,16 @@ processors:
 ```
 
 
+## Usage
+
+Add the processor to the [OCB](https://opentelemetry.io/docs/collector/extend/ocb/) builder manifest, pinned to a released tag:
+
+```yaml
+processors:
+  - gomod: github.com/bmarinov/incusattrprocessor v0.1.0
+```
+
+
 ## Build
 
 Bundle together with the ebpf-profiler into a custom collector binary via [OCB](https://opentelemetry.io/docs/collector/extend/ocb/).
