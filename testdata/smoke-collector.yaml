@@ -1,0 +1,20 @@
+receivers:
+  nop:
+
+processors:
+  incusattr:
+    connection:
+      socket_path: /nonexistent/incus.socket
+
+exporters:
+  nop:
+
+service:
+  telemetry:
+    logs:
+      level: info
+  pipelines:
+    profiles:
+      receivers: [nop]
+      processors: [incusattr]
+      exporters: [nop]
