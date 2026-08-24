@@ -21,7 +21,7 @@ processors:
   - gomod: go.opentelemetry.io/collector/processor/memorylimiterprocessor v0.158.0
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/resourcedetectionprocessor v0.158.0
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/resourceprocessor v0.158.0
-  - gomod: github.com/bmarinov/incusattrprocessor v0.1.0
+  - gomod: github.com/bmarinov/incusattrprocessor v0.2.0
     # path: .
 
 receivers:
