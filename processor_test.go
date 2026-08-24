@@ -220,6 +220,7 @@ func newProfilesWithPID(pid int64) (pprofile.Profiles, pprofile.ResourceProfiles
 
 func nopSettings() processor.Settings {
 	return processor.Settings{
+		ID:                component.NewID(typeStr),
 		TelemetrySettings: component.TelemetrySettings{Logger: zap.NewNop()},
 	}
 }
