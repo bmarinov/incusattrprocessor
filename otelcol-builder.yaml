@@ -22,7 +22,7 @@ processors:
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/resourcedetectionprocessor v0.162.0
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/resourceprocessor v0.162.0
   - gomod: github.com/bmarinov/incusattrprocessor v0.3.0
-    path: .
+    # path: .
 
 receivers:
   - gomod: go.opentelemetry.io/collector/receiver/nopreceiver v0.162.0
