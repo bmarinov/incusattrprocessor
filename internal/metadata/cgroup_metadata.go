@@ -86,6 +86,7 @@ type Cache struct {
 	instanceMeta map[instanceKey]incus.InstanceInfo
 	warmup       WarmupFunc
 	log          *zap.Logger
+	sem          chan struct{}
 }
 
 type WarmupFunc func(ctx context.Context) ([]incus.InstanceInfo, error)
@@ -100,6 +101,7 @@ func NewCache(lookup InstanceLookup,
 		instanceMeta: map[instanceKey]incus.InstanceInfo{},
 		warmup:       w,
 		log:          log,
+		sem:          make(chan struct{}, maxRequestsInFlight),
 	}
 }
 
@@ -112,7 +114,22 @@ func (c *Cache) GetInstance(ctx context.Context, project string, name string) (i
 		return entry, nil
 	}
 
+	stub := incus.InstanceInfo{
+		Name:    name,
+		Project: project,
+	}
+
+	select {
+	case c.sem <- struct{}{}:
+	default:
+		return stub, nil
+	}
+
 	go func() {
+		defer func() {
+			<-c.sem
+		}()
+
 		// TODO: decoupling from caller context, reasses approach & timeout:
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
@@ -126,10 +143,7 @@ func (c *Cache) GetInstance(ctx context.Context, project string, name string) (i
 		c.instanceMeta[instanceKey{project: project, name: name}] = i
 	}()
 
-	return incus.InstanceInfo{
-		Name:    name,
-		Project: project,
-	}, nil
+	return stub, nil
 }
 
 func (c *Cache) Start(ctx context.Context) error {
