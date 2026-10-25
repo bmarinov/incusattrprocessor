@@ -28,6 +28,10 @@ var instanceActions = map[string]cacheAction{
 	incus.EventInstanceRestarted: actionUpdate,
 }
 
+// maxRequestsInFlight limits the concurrent background fetches.
+// A cache miss above the limit returns without fetching.
+const maxRequestsInFlight = 16
+
 type InstanceLookup interface {
 	GetInstance(ctx context.Context, project, name string) (incus.InstanceInfo, error)
 }
