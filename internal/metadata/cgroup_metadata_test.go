@@ -240,6 +240,15 @@ func TestCache_GetInstance(t *testing.T) {
 				t.Errorf("expected %d lookup calls, got %d", maxRequestsInFlight, totalRequests)
 			}
 			close(block)
+			synctest.Wait()
+
+			_, _ = c.GetInstance(t.Context(), "foo-prj", fmt.Sprintf("appinstance+%d", maxRequestsInFlight))
+			synctest.Wait()
+
+			calls := lookup.totalCalls.Load()
+			if calls != maxRequestsInFlight+1 {
+				t.Errorf("expected %d lookup calls after second run, got %d", maxRequestsInFlight+1, calls)
+			}
 		})
 	})
 }
