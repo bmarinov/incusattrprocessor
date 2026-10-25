@@ -3,10 +3,13 @@ package metadata
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/bmarinov/incusattrprocessor/internal/incus"
@@ -220,6 +223,39 @@ func TestCache_GetInstance(t *testing.T) {
 			t.Errorf("expected empty entry for old name after rename, got %+v", old)
 		}
 	})
+	t.Run("cache misses above limit skip background fetch", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			c, lookup, _ := setupCache()
+
+			block := lookup.enableBlocking()
+
+			cacheMisses := maxRequestsInFlight + 1
+			for i := range cacheMisses {
+				_, _ = c.GetInstance(t.Context(), "foo-prj", fmt.Sprintf("appinstance+%d", i))
+			}
+
+			synctest.Wait()
+			totalRequests := lookup.totalCalls.Load()
+			if totalRequests != maxRequestsInFlight {
+				t.Errorf("expected %d lookup calls, got %d", maxRequestsInFlight, totalRequests)
+			}
+			close(block)
+			synctest.Wait()
+
+			afterRelease := lookup.totalCalls.Load()
+			if afterRelease != maxRequestsInFlight {
+				t.Errorf("expected %d lookup calls after release, got %d", maxRequestsInFlight, afterRelease)
+			}
+
+			_, _ = c.GetInstance(t.Context(), "foo-prj", fmt.Sprintf("appinstance+%d", maxRequestsInFlight))
+			synctest.Wait()
+
+			calls := lookup.totalCalls.Load()
+			if calls != maxRequestsInFlight+1 {
+				t.Errorf("expected %d lookup calls after second run, got %d", maxRequestsInFlight+1, calls)
+			}
+		})
+	})
 }
 
 func TestCache_RebuildAfterReconnect(t *testing.T) {
@@ -302,15 +338,36 @@ func setupCache(seed ...incus.InstanceInfo) (*Cache, *fakeInstanceLookup, *fakeE
 }
 
 type fakeInstanceLookup struct {
-	info incus.InstanceInfo
-	err  error
+	info       incus.InstanceInfo
+	block      <-chan struct{}
+	err        error
+	totalCalls atomic.Int64
 }
 
-func (f *fakeInstanceLookup) GetInstance(_ context.Context, project, name string) (incus.InstanceInfo, error) {
+func (f *fakeInstanceLookup) GetInstance(ctx context.Context, project, name string) (incus.InstanceInfo, error) {
+	f.totalCalls.Add(1)
+
+	if f.block != nil {
+		select {
+		case <-f.block:
+		case <-ctx.Done():
+			return incus.InstanceInfo{}, ctx.Err()
+		}
+	}
 	info := f.info
 	info.Name = name
 	info.Project = project
+
 	return info, f.err
+}
+
+// enableBlocking returns a channel which will unblock the lookup when closed.
+//
+// Must be called before GetInstance.
+func (f *fakeInstanceLookup) enableBlocking() chan<- struct{} {
+	ch := make(chan struct{})
+	f.block = ch
+	return ch
 }
 
 // waitFetched polls GetInstance until the cache holds a fully-populated entry for project/name.
