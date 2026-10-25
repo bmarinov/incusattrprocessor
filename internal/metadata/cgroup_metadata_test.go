@@ -242,6 +242,11 @@ func TestCache_GetInstance(t *testing.T) {
 			close(block)
 			synctest.Wait()
 
+			afterRelease := lookup.totalCalls.Load()
+			if afterRelease != maxRequestsInFlight {
+				t.Errorf("expected %d lookup calls after release, got %d", maxRequestsInFlight, afterRelease)
+			}
+
 			_, _ = c.GetInstance(t.Context(), "foo-prj", fmt.Sprintf("appinstance+%d", maxRequestsInFlight))
 			synctest.Wait()
 
